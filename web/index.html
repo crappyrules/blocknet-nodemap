@@ -38,7 +38,11 @@
         #map {
             width: 100%;
             height: 100vh;
+            background: var(--bg);
         }
+
+        /* Leaflet uses a light gray background by default; override so "empty" areas aren't white. */
+        .leaflet-container { background: var(--bg) !important; }
 
         /* Panels */
         .panel {
@@ -242,6 +246,24 @@
             worldCopyJump: true,
         });
 
+        // With noWrap enabled, zoom 2 can leave empty gutters on very wide viewports because the
+        // single world copy may be narrower than the screen (world size = 256 * 2^zoom).
+        // Bump the initial zoom up just enough to fill the viewport, but don't force-zoom down later.
+        function zoomToFillWorld() {
+            const size = map.getSize();
+            const tile = 256;
+            const zW = Math.ceil(Math.log(size.x / tile) / Math.LN2);
+            const zH = Math.ceil(Math.log(size.y / tile) / Math.LN2);
+            return Math.max(zW, zH);
+        }
+
+        function bumpZoomIfNeeded() {
+            // Cap to something reasonable so we don't suddenly zoom very far in on extremely wide displays.
+            const cap = Math.min(map.getMaxZoom(), 6);
+            const ideal = Math.max(map.getMinZoom(), Math.min(cap, zoomToFillWorld()));
+            if (map.getZoom() < ideal) map.setZoom(ideal);
+        }
+
         L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -251,6 +273,18 @@
             noWrap: true,
             bounds: worldBounds,
         }).addTo(map);
+
+        // Ensure the map has a computed size before we decide on an initial zoom.
+        map.whenReady(() => {
+            requestAnimationFrame(() => bumpZoomIfNeeded());
+        });
+
+        // Re-check on resize (debounced).
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(bumpZoomIfNeeded, 120);
+        });
 
         // Custom glowing marker icon.
         function createNodeIcon() {
