@@ -1,0 +1,13 @@
+# binaries / build artifacts
+nodemap
+
+# local scratch files
+ERROR
+\[build
+
+# editor / OS
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/

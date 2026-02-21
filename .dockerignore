@@ -1,0 +1,4 @@
+nodemap
+*.md
+.git
+.gitignore

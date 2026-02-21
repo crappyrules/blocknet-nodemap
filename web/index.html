@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>blocknet nodemap</title>
+
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --bg: #000;
+            --panel: rgba(0, 0, 0, 0.85);
+            --panel-solid: #050505;
+            --border: rgba(255, 255, 255, 0.12);
+            --border-strong: rgba(255, 255, 255, 0.18);
+            --text: #e6e6e6;
+            --muted: #7d7d7d;
+            --muted2: #5a5a5a;
+            --accent: #a6ff00;
+            --accent-dim: rgba(166, 255, 0, 0.18);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Panels */
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 0;
+            padding: 16px;
+            z-index: 1000;
+            backdrop-filter: blur(6px);
+        }
+
+        /* Header / brand */
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            line-height: 1;
+        }
+        .brand .logo {
+            width: 16px;
+            height: 16px;
+            object-fit: contain;
+            display: block;
+        }
+        .brand .name {
+            color: var(--text);
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+        .brand .sub {
+            color: var(--muted);
+            font-weight: 500;
+        }
+
+        /* Stats overlay */
+        #stats {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            min-width: 260px;
+            max-width: 360px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+        .stat-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-size: 10px; }
+        .stat-value { color: var(--text); font-weight: 600; font-size: 14px; }
+
+        #status {
+            margin-top: 10px;
+            font-size: 11px;
+            color: var(--muted2);
+        }
+        #status.crawling { color: #ffb300; }
+        #status.ready { color: var(--accent); }
+
+        /* Node list panel */
+        #node-list {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            max-height: calc(100vh - 32px);
+            width: 340px;
+            overflow-y: auto;
+        }
+        #node-list h2 {
+            font-size: 12px;
+            color: var(--accent);
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: lowercase;
+            margin-bottom: 10px;
+        }
+        .node-entry {
+            padding: 8px 10px;
+            margin: 0 -10px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .node-entry:hover { background: rgba(255, 255, 255, 0.04); }
+        .node-entry.no-geo { cursor: default; opacity: 0.65; }
+        .node-entry.no-geo:hover { background: transparent; }
+
+        .node-ip { color: var(--accent); font-family: inherit; }
+        .node-location { color: var(--muted); margin-left: 10px; }
+
+        /* Leaflet popup override */
+        .leaflet-popup-content-wrapper {
+            background: rgba(0, 0, 0, 0.9) !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border-strong);
+            border-radius: 0;
+        }
+        .leaflet-popup-tip { background: rgba(0, 0, 0, 0.9) !important; }
+        .popup-content { font-size: 12px; line-height: 1.6; }
+        .popup-content .label { color: var(--muted); }
+        .popup-content .value { color: var(--accent); font-family: inherit; }
+
+        /* Scrollbar */
+        #node-list::-webkit-scrollbar { width: 6px; }
+        #node-list::-webkit-scrollbar-track { background: transparent; }
+        #node-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+        #node-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="stats" class="panel">
+        <div class="brand">
+            <img class="logo" src="/blocknet.png" alt="blocknet" />
+            <span class="name">blocknet</span>
+            <span class="sub">nodes</span>
+        </div>
+
+        <div class="stat-row">
+            <span class="stat-label">Nodes</span>
+            <span class="stat-value" id="node-count">—</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Countries</span>
+            <span class="stat-value" id="country-count">—</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Last Crawl</span>
+            <span class="stat-value" id="last-crawl">—</span>
+        </div>
+        <div id="status">Connecting...</div>
+    </div>
+
+    <div id="node-list" class="panel">
+        <h2># node list</h2>
+        <div id="nodes-container"></div>
+    </div>
+
+    <script>
+        // Initialize map with dark tiles.
+        const map = L.map('map', {
+            center: [20, 0],
+            zoom: 2,
+            minZoom: 2,
+            maxZoom: 13,
+            zoomControl: false,
+        });
+
+        L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19,
+        }).addTo(map);
+
+        // Custom glowing marker icon.
+        function createNodeIcon() {
+            return L.divIcon({
+                className: '',
+                html: `<div style="
+                    width: 10px; height: 10px;
+                    background: var(--accent);
+                    border: 1px solid rgba(166, 255, 0, 0.35);
+                    border-radius: 50%;
+                    box-shadow: 0 0 8px 3px rgba(166, 255, 0, 0.28);
+                "></div>`,
+                iconSize: [10, 10],
+                iconAnchor: [5, 5],
+            });
+        }
+
+        let markers = L.layerGroup().addTo(map);
+        let nodeData = [];
+
+        async function fetchNodes() {
+            try {
+                const [nodesResp, statsResp] = await Promise.all([
+                    fetch('/api/nodes'),
+                    fetch('/api/stats'),
+                ]);
+                const nodes = await nodesResp.json();
+                const stats = await statsResp.json();
+
+                nodeData = nodes || [];
+                updateMap(nodeData);
+                updateStats(stats);
+                updateNodeList(nodeData);
+
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+                statusEl.className = 'ready';
+            } catch (err) {
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = `Error: ${err.message}`;
+                statusEl.className = 'crawling';
+            }
+        }
+
+        function hasGeo(node) {
+            if (!Number.isFinite(node?.lat) || !Number.isFinite(node?.lng)) return false;
+            // Treat (0,0) as "unknown" unless the lookup gave us a real location.
+            if (node.lat === 0 && node.lng === 0 && !node.country && !node.city) return false;
+            return true;
+        }
+
+        function updateMap(nodes) {
+            markers.clearLayers();
+            const icon = createNodeIcon();
+
+            for (const node of nodes) {
+                if (!hasGeo(node)) continue;
+
+                const marker = L.marker([node.lat, node.lng], { icon })
+                    .bindPopup(`
+                        <div class="popup-content">
+                            <div><span class="label">IP:</span> <span class="value">${node.ip}</span></div>
+                            <div><span class="label">Peer:</span> <span class="value">${node.peer_id.substring(0, 16)}…</span></div>
+                            <div><span class="label">Location:</span> <span class="value">${node.city || '?'}, ${node.country || '?'}</span></div>
+                            <div><span class="label">ISP:</span> <span class="value">${node.isp || '?'}</span></div>
+                            <div><span class="label">Last Seen:</span> <span class="value">${formatTime(node.last_seen)}</span></div>
+                        </div>
+                    `);
+                markers.addLayer(marker);
+            }
+        }
+
+        function updateStats(stats) {
+            document.getElementById('node-count').textContent = stats.total_nodes || 0;
+            document.getElementById('country-count').textContent = stats.countries || 0;
+
+            const lastCrawl = stats.last_crawl;
+            if (lastCrawl && lastCrawl > 0) {
+                document.getElementById('last-crawl').textContent = formatTime(lastCrawl);
+            } else {
+                document.getElementById('last-crawl').textContent = 'Crawling…';
+            }
+        }
+
+        function updateNodeList(nodes) {
+            const container = document.getElementById('nodes-container');
+            // Sort by country then IP.
+            const sorted = [...nodes].sort((a, b) => {
+                const ca = (a.country || '').localeCompare(b.country || '');
+                if (ca !== 0) return ca;
+                return (a.ip || '').localeCompare(b.ip || '');
+            });
+
+            container.innerHTML = sorted.map(n => {
+                const geo = hasGeo(n);
+                const cls = geo ? 'node-entry' : 'node-entry no-geo';
+                const click = geo ? `onclick="flyTo(${n.lat}, ${n.lng})"` : '';
+                return `
+                    <div class="${cls}" ${click}>
+                        <span class="node-ip">${n.ip}</span>
+                        <span class="node-location">${n.city ? n.city + ', ' : ''}${n.country || 'Unknown'}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function flyTo(lat, lng) {
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            map.flyTo([lat, lng], 6, { duration: 1 });
+        }
+
+        function formatTime(unix) {
+            if (!unix || unix <= 0) return '—';
+            const d = new Date(unix * 1000);
+            const now = new Date();
+            const diffMs = now - d;
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'just now';
+            if (diffMin < 60) return `${diffMin}m ago`;
+            const diffHr = Math.floor(diffMin / 60);
+            if (diffHr < 24) return `${diffHr}h ago`;
+            return d.toLocaleDateString();
+        }
+
+        // Initial fetch + auto-refresh every 60s.
+        fetchNodes();
+        setInterval(fetchNodes, 60000);
+    </script>
+</body>
+</html>
