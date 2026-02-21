@@ -214,6 +214,10 @@
             });
         }
 
+        // Connection arcs (rendered on canvas for better performance than SVG when many paths are present).
+        const connectionRenderer = L.canvas({ padding: 0.5 });
+        let connections = L.layerGroup().addTo(map);
+
         let markers = L.layerGroup().addTo(map);
         let nodeData = [];
 
@@ -249,6 +253,8 @@
         }
 
         function updateMap(nodes) {
+            updateConnections(nodes);
+
             markers.clearLayers();
             const icon = createNodeIcon();
 
@@ -268,6 +274,160 @@
                 markers.addLayer(marker);
             }
         }
+
+        function updateConnections(nodes) {
+            connections.clearLayers();
+
+            const geoNodes = (nodes || []).filter(hasGeo);
+            const n = geoNodes.length;
+            if (n < 2) return;
+
+            // Drawing a full mesh becomes expensive quickly (O(n^2) edges). Keep a hard cap so the UI stays responsive.
+            const maxEdges = 2500;
+
+            const allPairs = (n * (n - 1)) / 2;
+            const edges = [];
+
+            if (allPairs <= maxEdges) {
+                for (let i = 0; i < n; i++) {
+                    for (let j = i + 1; j < n; j++) {
+                        edges.push([geoNodes[i], geoNodes[j]]);
+                    }
+                }
+            } else {
+                // Deterministically connect each node to a handful of other nodes to stay under maxEdges.
+                // Use a key set so we don't end up skipping lots of edges for higher i values.
+                const k = Math.min(n - 1, Math.max(1, Math.floor(maxEdges / n)));
+                const edgeKeys = new Set();
+
+                for (let i = 0; i < n; i++) {
+                    const seed = geoNodes[i].peer_id || geoNodes[i].ip || String(i);
+                    const picks = pickOtherNodeIndexes(seed, n, k, i);
+
+                    for (const j of picks) {
+                        const aIdx = Math.min(i, j);
+                        const bIdx = Math.max(i, j);
+                        if (aIdx === bIdx) continue;
+
+                        const key = `${aIdx}:${bIdx}`;
+                        if (edgeKeys.has(key)) continue;
+                        edgeKeys.add(key);
+
+                        edges.push([geoNodes[aIdx], geoNodes[bIdx]]);
+                        if (edges.length >= maxEdges) break;
+                    }
+
+                    if (edges.length >= maxEdges) break;
+                }
+            }
+
+            // Styling: draw a soft "glow" stroke first, then the main dashed arc on top.
+            // (Canvas renderer makes this fast enough even with a couple thousand edges.)
+            const arcColor = '#a6ff00';
+            const glowOpts = {
+                renderer: connectionRenderer,
+                color: arcColor,
+                weight: 5,
+                opacity: 0.08,
+                lineCap: 'round',
+                interactive: false,
+            };
+            const arcOpts = {
+                renderer: connectionRenderer,
+                color: arcColor,
+                weight: 2,
+                opacity: 0.42,
+                dashArray: '4 6',
+                lineCap: 'round',
+                interactive: false,
+            };
+
+            for (const [a, b] of edges) {
+                const pts = greatCirclePoints([a.lat, a.lng], [b.lat, b.lng], 24);
+                L.polyline(pts, glowOpts).addTo(connections);
+                L.polyline(pts, arcOpts).addTo(connections);
+            }
+        }
+
+        function pickOtherNodeIndexes(seedStr, n, k, excludeIdx) {
+            if (n <= 1) return [];
+            const kk = Math.min(n - 1, Math.max(0, k));
+
+            const rng = xorshift32(hashString(seedStr) || 1);
+            const picked = new Set();
+
+            // k is expected to be small relative to n.
+            while (picked.size < kk) {
+                const idx = Math.floor(rng() * n);
+                if (idx === excludeIdx) continue;
+                picked.add(idx);
+            }
+
+            return [...picked];
+        }
+
+        // 32-bit FNV-1a.
+        function hashString(str) {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < str.length; i++) {
+                h ^= str.charCodeAt(i);
+                h = Math.imul(h, 0x01000193);
+            }
+            return h >>> 0;
+        }
+
+        function xorshift32(seed) {
+            let x = seed >>> 0;
+            return function () {
+                x ^= x << 13;
+                x ^= x >>> 17;
+                x ^= x << 5;
+                return (x >>> 0) / 4294967296;
+            };
+        }
+
+        // Returns points along the great-circle path between two coordinates.
+        // Adapted from standard spherical linear interpolation.
+        function greatCirclePoints(a, b, segments) {
+            const [lat1, lon1] = a;
+            const [lat2, lon2] = b;
+
+            const φ1 = toRad(lat1);
+            const λ1 = toRad(lon1);
+            const φ2 = toRad(lat2);
+            const λ2 = toRad(lon2);
+
+            const sinΔφ = Math.sin((φ2 - φ1) / 2);
+            const sinΔλ = Math.sin((λ2 - λ1) / 2);
+
+            const aa = sinΔφ * sinΔφ + Math.cos(φ1) * Math.cos(φ2) * sinΔλ * sinΔλ;
+            const δ = 2 * Math.asin(Math.min(1, Math.sqrt(aa)));
+
+            // Same point.
+            if (!Number.isFinite(δ) || δ === 0) return [[lat1, lon1], [lat2, lon2]];
+
+            const sinδ = Math.sin(δ);
+            const pts = [];
+
+            for (let i = 0; i <= segments; i++) {
+                const f = i / segments;
+                const A = Math.sin((1 - f) * δ) / sinδ;
+                const B = Math.sin(f * δ) / sinδ;
+
+                const x = A * Math.cos(φ1) * Math.cos(λ1) + B * Math.cos(φ2) * Math.cos(λ2);
+                const y = A * Math.cos(φ1) * Math.sin(λ1) + B * Math.cos(φ2) * Math.sin(λ2);
+                const z = A * Math.sin(φ1) + B * Math.sin(φ2);
+
+                const φi = Math.atan2(z, Math.sqrt(x * x + y * y));
+                const λi = Math.atan2(y, x);
+                pts.push([toDeg(φi), toDeg(λi)]);
+            }
+
+            return pts;
+        }
+
+        function toRad(deg) { return (deg * Math.PI) / 180; }
+        function toDeg(rad) { return (rad * 180) / Math.PI; }
 
         function updateStats(stats) {
             document.getElementById('node-count').textContent = stats.total_nodes || 0;
