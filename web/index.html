@@ -82,6 +82,51 @@
             min-width: 260px;
             max-width: 360px;
         }
+
+        .toggle-btn {
+            display: none;
+            margin-top: 10px;
+            width: 100%;
+            padding: 8px 10px;
+            background: transparent;
+            border: 1px solid var(--border-strong);
+            color: var(--accent);
+            font: inherit;
+            font-size: 11px;
+            letter-spacing: 0.6px;
+            text-transform: lowercase;
+            cursor: pointer;
+        }
+        .toggle-btn:hover { background: rgba(255,255,255,0.04); }
+
+        /* Responsive: avoid overlay collisions on mobile */
+        @media (max-width: 760px) {
+            #stats {
+                top: 12px;
+                left: 12px;
+                right: 12px;
+                min-width: 0;
+                max-width: none;
+            }
+
+            #node-list {
+                top: auto;
+                right: 12px;
+                left: 12px;
+                bottom: 12px;
+                width: auto;
+                max-height: 42vh;
+            }
+
+            #node-list.collapsed {
+                max-height: 44px;
+                overflow: hidden;
+            }
+            #node-list.collapsed #nodes-container { display: none; }
+            #node-list h2 { margin-bottom: 0; }
+
+            .toggle-btn { display: block; }
+        }
         .stat-row {
             display: flex;
             justify-content: space-between;
@@ -173,6 +218,7 @@
             <span class="stat-value" id="last-crawl">—</span>
         </div>
         <div id="status">Connecting...</div>
+        <button id="toggle-node-list" class="toggle-btn" type="button">hide list</button>
     </div>
 
     <div id="node-list" class="panel">
@@ -182,12 +228,18 @@
 
     <script>
         // Initialize map with dark tiles.
+        // Disable horizontal world wrap so we don't get an "infinite" side-scrolling map.
+        const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+
         const map = L.map('map', {
             center: [20, 0],
             zoom: 2,
             minZoom: 2,
             maxZoom: 13,
             zoomControl: false,
+            maxBounds: worldBounds,
+            maxBoundsViscosity: 1.0,
+            worldCopyJump: true,
         });
 
         L.control.zoom({ position: 'bottomleft' }).addTo(map);
@@ -196,6 +248,8 @@
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
             subdomains: 'abcd',
             maxZoom: 19,
+            noWrap: true,
+            bounds: worldBounds,
         }).addTo(map);
 
         // Custom glowing marker icon.
@@ -344,9 +398,62 @@
 
             for (const [a, b] of edges) {
                 const pts = greatCirclePoints([a.lat, a.lng], [b.lat, b.lng], 24);
-                L.polyline(pts, glowOpts).addTo(connections);
-                L.polyline(pts, arcOpts).addTo(connections);
+                const segments = splitAtAntimeridian(pts);
+
+                for (const seg of segments) {
+                    if (seg.length < 2) continue;
+                    L.polyline(seg, glowOpts).addTo(connections);
+                    L.polyline(seg, arcOpts).addTo(connections);
+                }
             }
+        }
+
+        // Leaflet draws straight segments between points. When a line crosses the ±180° meridian,
+        // longitudes jump from +179 to -179 (or vice versa), producing a long "across the world" segment.
+        // Split the line at the antimeridian (adding intersection points) to prevent wrap artifacts.
+        function splitAtAntimeridian(points) {
+            if (!points || points.length < 2) return [points || []];
+
+            const segments = [];
+            let seg = [points[0]];
+
+            for (let i = 1; i < points.length; i++) {
+                const [prevLat, prevLng] = points[i - 1];
+                const [currLat, currLng] = points[i];
+
+                const aLng = wrapLng(prevLng);
+                const bLng = wrapLng(currLng);
+
+                if (Math.abs(aLng - bLng) <= 180) {
+                    seg.push([currLat, bLng]);
+                    continue;
+                }
+
+                // Crossing detected.
+                const border = aLng > 0 ? 180 : -180;
+                let bAdj = bLng;
+                if (border === 180 && bAdj < 0) bAdj += 360;
+                if (border === -180 && bAdj > 0) bAdj -= 360;
+
+                const denom = (bAdj - aLng);
+                const t = denom === 0 ? 0.5 : (border - aLng) / denom;
+                const latAtBorder = prevLat + t * (currLat - prevLat);
+
+                // Finish current segment at the border.
+                seg.push([latAtBorder, border]);
+                segments.push(seg);
+
+                // Start a new segment on the opposite side of the world.
+                seg = [[latAtBorder, -border], [currLat, bLng]];
+            }
+
+            if (seg.length) segments.push(seg);
+            return segments;
+        }
+
+        function wrapLng(lng) {
+            // Wrap into [-180, 180)
+            return ((((lng + 180) % 360) + 360) % 360) - 180;
         }
 
         function pickOtherNodeIndexes(seedStr, n, k, excludeIdx) {
@@ -480,6 +587,48 @@
             if (diffHr < 24) return `${diffHr}h ago`;
             return d.toLocaleDateString();
         }
+
+        // Mobile UX: collapse node list by default so the overlays don't collide.
+        const nodeListEl = document.getElementById('node-list');
+        const toggleNodeListBtn = document.getElementById('toggle-node-list');
+
+        function isMobile() {
+            return window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+        }
+
+        function setNodeListCollapsed(collapsed) {
+            if (!nodeListEl) return;
+            nodeListEl.classList.toggle('collapsed', collapsed);
+            if (toggleNodeListBtn) {
+                toggleNodeListBtn.textContent = collapsed ? 'show list' : 'hide list';
+            }
+        }
+
+        if (toggleNodeListBtn) {
+            toggleNodeListBtn.addEventListener('click', () => {
+                const collapsed = nodeListEl?.classList.contains('collapsed');
+                setNodeListCollapsed(!collapsed);
+            });
+        }
+
+        // Also allow tapping the node-list header to expand/collapse on mobile.
+        const nodeListHeader = document.querySelector('#node-list h2');
+        if (nodeListHeader) {
+            nodeListHeader.addEventListener('click', () => {
+                if (!isMobile()) return;
+                const collapsed = nodeListEl?.classList.contains('collapsed');
+                setNodeListCollapsed(!collapsed);
+            });
+        }
+
+        let wasMobile = isMobile();
+        setNodeListCollapsed(wasMobile);
+        window.addEventListener('resize', () => {
+            const mobileNow = isMobile();
+            if (mobileNow === wasMobile) return;
+            wasMobile = mobileNow;
+            setNodeListCollapsed(wasMobile);
+        });
 
         // Initial fetch + auto-refresh every 60s.
         fetchNodes();
