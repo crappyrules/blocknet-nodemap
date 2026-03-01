@@ -294,10 +294,12 @@
 
     <div id="node-list" class="panel">
         <h2># node list</h2>
+        <!--
         <div class="control-row">
             <label for="conn-opacity">connections</label>
             <input type="range" id="conn-opacity" min="0" max="100" value="100">
         </div>
+        -->
         <div id="nodes-container"></div>
     </div>
 
@@ -413,7 +415,7 @@
         }
 
         function updateMap(nodes) {
-            updateConnections(nodes);
+            // updateConnections(nodes);
 
             markers.clearLayers();
             const icon = createNodeIcon();
@@ -737,6 +739,7 @@
         });
 
         // Connection opacity slider.
+        /*
         document.getElementById('conn-opacity').addEventListener('input', (e) => {
             connOpacity = parseInt(e.target.value, 10) / 100;
             connections.eachLayer(layer => {
@@ -745,6 +748,7 @@
                 layer.setStyle({ opacity: base * connOpacity });
             });
         });
+        */
 
         // Initial fetch + auto-refresh every 60s.
         fetchNodes();
