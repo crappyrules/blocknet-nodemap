@@ -11,7 +11,15 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.css" />
+    <script type="importmap">
+        {
+            "imports": {
+                "leaflet": "https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js",
+                "maplibre-gl": "https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.mjs"
+            }
+        }
+    </script>
 
     <style>
         :root {
@@ -149,6 +157,11 @@
         }
         #status.crawling { color: #ffb300; }
         #status.ready { color: var(--accent); }
+        #basemap-status {
+            margin-top: 6px;
+            color: #ffb300;
+            font-size: 11px;
+        }
 
         /* Node list panel */
         #node-list {
@@ -289,6 +302,7 @@
             <span class="stat-value" id="last-crawl">—</span>
         </div>
         <div id="status">Connecting...</div>
+        <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
         <button id="toggle-node-list" class="toggle-btn" type="button">hide list</button>
     </div>
 
@@ -303,8 +317,10 @@
         <div id="nodes-container"></div>
     </div>
 
-    <script>
-        // Initialize map with dark tiles.
+    <script type="module">
+        import * as L from 'leaflet';
+        import { maplibreGL } from 'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.mjs';
+        // Initialize the map with a dark vector basemap.
         // Disable horizontal world wrap so we don't get an "infinite" side-scrolling map.
         const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
 
@@ -339,13 +355,12 @@
 
         L.control.zoom({ position: 'bottomleft' }).addTo(map);
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-            subdomains: 'abcd',
-            maxZoom: 19,
-            noWrap: true,
-            bounds: worldBounds,
+        const basemap = maplibreGL({
+            style: 'https://tiles.openfreemap.org/styles/dark',
         }).addTo(map);
+        basemap.getMaplibreMap().on('error', () => {
+            document.getElementById('basemap-status').hidden = false;
+        });
 
         // Ensure the map has a computed size before we decide on an initial zoom.
         map.whenReady(() => {
@@ -682,6 +697,7 @@
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
             map.flyTo([lat, lng], 6, { duration: 1 });
         }
+        window.flyTo = flyTo;
 
         function formatTime(unix) {
             if (!unix || unix <= 0) return '—';
