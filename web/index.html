@@ -321,8 +321,8 @@
         import * as L from 'leaflet';
         import { maplibreGL } from 'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.mjs';
         // Initialize the map with a dark vector basemap.
-        // Disable horizontal world wrap so we don't get an "infinite" side-scrolling map.
-        const worldBounds = L.latLngBounds(L.latLng(-85, -180), L.latLng(85, 180));
+        // Keep the poles in range, but let longitude wrap across the dateline.
+        const latitudeBounds = L.latLngBounds(L.latLng(-85, -Infinity), L.latLng(85, Infinity));
 
         const map = L.map('map', {
             center: [20, 0],
@@ -330,14 +330,13 @@
             minZoom: 2,
             maxZoom: 13,
             zoomControl: false,
-            maxBounds: worldBounds,
+            maxBounds: latitudeBounds,
             maxBoundsViscosity: 1.0,
             worldCopyJump: true,
         });
 
-        // With noWrap enabled, zoom 2 can leave empty gutters on very wide viewports because the
-        // single world copy may be narrower than the screen (world size = 256 * 2^zoom).
-        // Bump the initial zoom up just enough to fill the viewport, but don't force-zoom down later.
+        // Keep one world at least as wide as the viewport, including after a resize.
+        // This avoids showing several copies at the overview zoom.
         function zoomToFillWorld() {
             const size = map.getSize();
             const tile = 256;
@@ -346,10 +345,9 @@
             return Math.max(zW, zH);
         }
 
-        function bumpZoomIfNeeded() {
-            // Cap to something reasonable so we don't suddenly zoom very far in on extremely wide displays.
-            const cap = Math.min(map.getMaxZoom(), 6);
-            const ideal = Math.max(map.getMinZoom(), Math.min(cap, zoomToFillWorld()));
+        function updateMinimumZoom() {
+            const ideal = Math.min(map.getMaxZoom(), Math.max(2, zoomToFillWorld()));
+            map.setMinZoom(ideal);
             if (map.getZoom() < ideal) map.setZoom(ideal);
         }
 
@@ -357,6 +355,7 @@
 
         const basemap = maplibreGL({
             style: 'https://tiles.openfreemap.org/styles/dark',
+            renderWorldCopies: true,
         }).addTo(map);
         basemap.getMaplibreMap().on('error', () => {
             document.getElementById('basemap-status').hidden = false;
@@ -364,14 +363,14 @@
 
         // Ensure the map has a computed size before we decide on an initial zoom.
         map.whenReady(() => {
-            requestAnimationFrame(() => bumpZoomIfNeeded());
+            requestAnimationFrame(updateMinimumZoom);
         });
 
         // Re-check on resize (debounced).
         let resizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(bumpZoomIfNeeded, 120);
+            resizeTimer = setTimeout(updateMinimumZoom, 120);
         });
 
         // Custom glowing marker icon.
@@ -438,17 +437,20 @@
             for (const node of nodes) {
                 if (!hasGeo(node)) continue;
 
-                const marker = L.marker([node.lat, node.lng], { icon })
-                    .bindPopup(`
-                        <div class="popup-content">
-                            <div><span class="label">IP:</span> <span class="value">${node.ip}</span></div>
-                            <div><span class="label">Peer:</span> <span class="value">${node.peer_id.substring(0, 16)}…</span></div>
-                            <div><span class="label">Location:</span> <span class="value">${node.city || '?'}, ${node.country || '?'}</span></div>
-                            <div><span class="label">ISP:</span> <span class="value">${node.isp || '?'}</span></div>
-                            <div><span class="label">Last Seen:</span> <span class="value">${formatTime(node.last_seen)}</span></div>
-                        </div>
-                    `);
-                markers.addLayer(marker);
+                const popup = `
+                    <div class="popup-content">
+                        <div><span class="label">IP:</span> <span class="value">${node.ip}</span></div>
+                        <div><span class="label">Peer:</span> <span class="value">${node.peer_id.substring(0, 16)}…</span></div>
+                        <div><span class="label">Location:</span> <span class="value">${node.city || '?'}, ${node.country || '?'}</span></div>
+                        <div><span class="label">ISP:</span> <span class="value">${node.isp || '?'}</span></div>
+                        <div><span class="label">Last Seen:</span> <span class="value">${formatTime(node.last_seen)}</span></div>
+                    </div>
+                `;
+                // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
+                // One copy on each neighboring world keeps nodes visible across the seam.
+                for (const offset of [-360, 0, 360]) {
+                    markers.addLayer(L.marker([node.lat, node.lng + offset], { icon }).bindPopup(popup));
+                }
             }
         }
 
@@ -695,7 +697,8 @@
 
         function flyTo(lat, lng) {
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-            map.flyTo([lat, lng], 6, { duration: 1 });
+            const nearbyLng = lng + 360 * Math.round((map.getCenter().lng - lng) / 360);
+            map.flyTo([lat, nearbyLng], 6, { duration: 1 });
         }
         window.flyTo = flyTo;
 
