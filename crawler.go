@@ -154,6 +154,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 			}
 		}
 	}
+	// Make known seeds visible while the full network crawl is still running.
+	c.publishNodes(discovered)
+	lastPublished := time.Now()
 
 	for len(queue) > 0 {
 		select {
@@ -174,6 +177,10 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		// Connect and exchange.
 		records, err := c.exchangeWith(ctx, pi)
 		if err != nil {
+			if time.Since(lastPublished) >= 5*time.Second {
+				c.publishNodes(discovered)
+				lastPublished = time.Now()
+			}
 			continue
 		}
 
@@ -220,6 +227,10 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				queue = append(queue, peer.AddrInfo{ID: pid, Addrs: addrs})
 			}
 		}
+		if time.Since(lastPublished) >= 5*time.Second {
+			c.publishNodes(discovered)
+			lastPublished = time.Now()
+		}
 	}
 
 	// Disconnect from all peers after crawl.
@@ -227,13 +238,23 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		_ = conn.Close()
 	}
 
-	// Update the node map.
-	c.mu.Lock()
-	c.nodes = discovered
-	c.mu.Unlock()
+	c.publishNodes(discovered)
 
 	log.Printf("crawler: found %d unique IPs from %d peers", len(discovered), len(visited))
 	return nil
+}
+
+// publishNodes gives API readers an immutable snapshot while Crawl keeps writing.
+func (c *Crawler) publishNodes(discovered map[string]*DiscoveredNode) {
+	snapshot := make(map[string]*DiscoveredNode, len(discovered))
+	for ip, node := range discovered {
+		copy := *node
+		copy.Addrs = append([]string(nil), node.Addrs...)
+		snapshot[ip] = &copy
+	}
+	c.mu.Lock()
+	c.nodes = snapshot
+	c.mu.Unlock()
 }
 
 // exchangeWith connects to a peer and requests their peer list via PEX.
@@ -253,6 +274,9 @@ func (c *Crawler) exchangeWith(ctx context.Context, pi peer.AddrInfo) ([]PeerRec
 		return nil, fmt.Errorf("open PEX stream to %s: %w", pi.ID.String()[:16], err)
 	}
 	defer s.Close()
+	if err := s.SetDeadline(time.Now().Add(exchangeTimeout)); err != nil {
+		return nil, err
+	}
 
 	// Send GetPeers: [type byte] + [4-byte length] + [payload]
 	if _, err := s.Write([]byte{PEXMsgGetPeers}); err != nil {
