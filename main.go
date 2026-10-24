@@ -43,7 +43,12 @@ type NodeInfo struct {
 func main() {
 	listenAddr := flag.String("listen", ":8080", "HTTP listen address")
 	crawlInterval := flag.Duration("interval", 5*time.Minute, "Crawl interval")
+	nodeAPIURL := flag.String("node-api-url", os.Getenv("NODE_API_URL"), "Internal BNT node API origin for network metrics")
 	flag.Parse()
+	metrics, err := newNetworkMetricsCache(*nodeAPIURL)
+	if err != nil {
+		log.Fatalf("Invalid node API URL: %v", err)
+	}
 
 	log.SetFlags(log.Ltime | log.Lshortfile)
 
@@ -136,6 +141,19 @@ func main() {
 			"countries":   len(countries),
 			"last_crawl":  crawler.LastCrawl().Unix(),
 		})
+	})
+
+	// Read only the public stats fields from the node; never proxy its API.
+	mux.HandleFunc("GET /api/network", func(w http.ResponseWriter, r *http.Request) {
+		value, err := metrics.get(r.Context())
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "unavailable"})
+			return
+		}
+		json.NewEncoder(w).Encode(value)
 	})
 
 	srv := &http.Server{

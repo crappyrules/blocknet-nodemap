@@ -4,6 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>blocknet nodemap</title>
+    <meta name="description" content="Explore the live Blocknet peer network on an interactive world map.">
+    <meta name="theme-color" content="#000000">
+    <link rel="canonical" href="https://blocknetnodes.toxicrainbows.com/">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="blocknet nodemap">
+    <meta property="og:title" content="blocknet nodemap">
+    <meta property="og:description" content="Explore the live Blocknet peer network on an interactive world map.">
+    <meta property="og:url" content="https://blocknetnodes.toxicrainbows.com/">
+    <meta property="og:image" content="https://blocknetnodes.toxicrainbows.com/og.png">
+    <meta property="og:image:secure_url" content="https://blocknetnodes.toxicrainbows.com/og.png">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Blocknet nodemap wordmark beside a glowing green network globe">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="blocknet nodemap">
+    <meta name="twitter:description" content="Explore the live Blocknet peer network on an interactive world map.">
+    <meta name="twitter:image" content="https://blocknetnodes.toxicrainbows.com/og.png">
+    <meta name="twitter:image:alt" content="Blocknet nodemap wordmark beside a glowing green network globe">
 
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -149,6 +168,7 @@
         }
         .stat-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; font-size: 10px; }
         .stat-value { color: var(--text); font-weight: 600; font-size: 14px; }
+        #network-status { color: var(--muted2); font-size: 10px; margin: 0 0 8px; }
 
         #status {
             margin-top: 10px;
@@ -301,6 +321,15 @@
             <span class="stat-label">Last Crawl</span>
             <span class="stat-value" id="last-crawl">—</span>
         </div>
+        <div class="stat-row">
+            <span class="stat-label">Hashrate</span>
+            <span class="stat-value" id="network-hashrate">—</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Next Difficulty</span>
+            <span class="stat-value" id="network-difficulty">—</span>
+        </div>
+        <div id="network-status" role="status">BNT node metrics unavailable</div>
         <div id="status">Connecting...</div>
         <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
         <button id="toggle-node-list" class="toggle-btn" type="button">hide list</button>
@@ -715,6 +744,41 @@
             return d.toLocaleDateString();
         }
 
+        function formatHashrate(value) {
+            if (!Number.isFinite(value) || value <= 0) return '—';
+            const units = ['H/s', 'kH/s', 'MH/s', 'GH/s'];
+            let unit = 0;
+            while (value >= 1000 && unit < units.length - 1) {
+                value /= 1000;
+                unit++;
+            }
+            return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${units[unit]}`;
+        }
+
+        async function fetchNetworkMetrics() {
+            const rate = document.getElementById('network-hashrate');
+            const difficulty = document.getElementById('network-difficulty');
+            const state = document.getElementById('network-status');
+            try {
+                const response = await fetch('/api/network');
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                if (!['fresh', 'stale'].includes(data.status) || !Number.isFinite(data.network_hashrate) || !Number.isSafeInteger(data.difficulty)) {
+                    throw new Error('Invalid node metrics');
+                }
+                rate.textContent = formatHashrate(data.network_hashrate);
+                difficulty.textContent = data.difficulty.toLocaleString();
+                difficulty.title = 'BNT next-block difficulty';
+                state.textContent = data.status === 'stale'
+                    ? `BNT node metrics stale · sampled ${formatTime(data.sampled_at)}`
+                    : `BNT node · sampled ${formatTime(data.sampled_at)}`;
+            } catch (_) {
+                rate.textContent = '—';
+                difficulty.textContent = '—';
+                state.textContent = 'BNT node metrics unavailable';
+            }
+        }
+
         // Mobile UX: collapse node list by default so the overlays don't collide.
         const nodeListEl = document.getElementById('node-list');
         const toggleNodeListBtn = document.getElementById('toggle-node-list');
@@ -772,6 +836,8 @@
         // Initial fetch + auto-refresh every 60s.
         fetchNodes();
         setInterval(fetchNodes, 60000);
+        fetchNetworkMetrics();
+        setInterval(fetchNetworkMetrics, 60000);
     </script>
 </body>
 </html>

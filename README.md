@@ -20,11 +20,13 @@ go build -o nodemap .
 Flags:
 - `-listen` (default `:8080`): HTTP listen address
 - `-interval` (default `5m`): crawl interval
+- `-node-api-url` or `NODE_API_URL` (optional): internal origin for the same host's BNT node API; when unset, network metrics show as unavailable
 
 Endpoints:
 - `GET /` – web UI
 - `GET /api/nodes` – node list (with geo fields when available)
 - `GET /api/stats` – simple stats (`total_nodes`, `countries`, `last_crawl`)
+- `GET /api/network` – cached BNT `network_hashrate` (H/s) and next-block `difficulty` from the node's public `/api/stats`; reports stale data for at most 10 minutes, then 503 unavailable
 
 ## Docker
 ```bash
@@ -34,4 +36,5 @@ docker run --rm -p 8080:8080 blocknet-nodemap
 
 ## Notes
 - The frontend is embedded into the binary using Go `embed` (`//go:embed web`). If you change anything under `web/`, you must rebuild the `nodemap` binary.
+- The 1200×630 social card is `web/og.png`; regenerate it with `python3 scripts/generate-social-card.py` (requires Pillow).
 - Seed nodes are currently hard-coded in `main.go`.
