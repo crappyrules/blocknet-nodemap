@@ -114,51 +114,8 @@
             max-width: 360px;
         }
 
-        .toggle-btn {
-            display: none;
-            margin-top: 10px;
-            width: 100%;
-            padding: 8px 10px;
-            background: transparent;
-            border: 1px solid var(--border-strong);
-            color: var(--accent);
-            font: inherit;
-            font-size: 11px;
-            letter-spacing: 0.6px;
-            text-transform: lowercase;
-            cursor: pointer;
-        }
-        .toggle-btn:hover { background: rgba(255,255,255,0.04); }
-
-        /* Responsive: avoid overlay collisions on mobile */
-        @media (max-width: 760px) {
-            #stats {
-                top: 12px;
-                left: 12px;
-                right: 12px;
-                min-width: 0;
-                max-width: none;
-            }
-
-            #node-list {
-                top: auto;
-                right: 12px;
-                left: 12px;
-                bottom: 12px;
-                width: auto;
-                max-height: 42vh;
-            }
-
-            #node-list.collapsed {
-                max-height: 44px;
-                overflow: hidden;
-            }
-            #node-list.collapsed #nodes-container { display: none; }
-            #node-list.collapsed .control-row { display: none; }
-            #node-list h2 { margin-bottom: 0; }
-
-            .toggle-btn { display: block; }
-        }
+        #open-info, #close-info, #info-backdrop { display: none; }
+        [hidden] { display: none !important; }
         .stat-row {
             display: flex;
             justify-content: space-between;
@@ -201,13 +158,20 @@
             margin-bottom: 10px;
         }
         .node-entry {
+            display: block;
+            width: calc(100% + 20px);
             padding: 8px 10px;
             margin: 0 -10px;
+            background: transparent;
+            border: 0;
             border-bottom: 1px solid rgba(255,255,255,0.06);
+            color: inherit;
+            font: inherit;
             font-size: 12px;
+            text-align: left;
             cursor: pointer;
         }
-        .node-entry:hover { background: rgba(255, 255, 255, 0.04); }
+        .node-entry:hover, .node-entry:focus-visible { background: rgba(255, 255, 255, 0.04); }
         .node-entry.no-geo { cursor: default; opacity: 0.65; }
         .node-entry.no-geo:hover { background: transparent; }
 
@@ -285,8 +249,79 @@
         #node-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
         #node-list::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
 
-        @media (max-width: 760px) {
-            /* Hide zoom controls on mobile to prevent overlap with bottom panel */
+        @media (max-width: 760px), (max-height: 500px) and (max-width: 1100px) {
+            #open-info {
+                display: block;
+                position: fixed;
+                z-index: 1000;
+                top: calc(12px + env(safe-area-inset-top));
+                left: calc(12px + env(safe-area-inset-left));
+                min-height: 44px;
+                padding: 0 14px;
+                background: var(--panel-solid);
+                border: 1px solid var(--border-strong);
+                color: var(--accent);
+                font: inherit;
+                font-size: 12px;
+                cursor: pointer;
+            }
+            #info-backdrop {
+                display: block;
+                position: fixed;
+                inset: 0;
+                z-index: 1100;
+                background: rgba(0, 0, 0, 0.4);
+            }
+            #info-drawer {
+                position: fixed;
+                z-index: 1200;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                width: min(340px, calc(100vw - 56px));
+                padding-top: env(safe-area-inset-top);
+                padding-bottom: env(safe-area-inset-bottom);
+                background: var(--panel-solid);
+                border-right: 1px solid var(--border-strong);
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                visibility: hidden;
+                transform: translateX(-100%);
+                transition: transform 180ms ease, visibility 180ms;
+            }
+            body.mobile-drawer-open #info-drawer {
+                visibility: visible;
+                transform: translateX(0);
+            }
+            body.mobile-drawer-open #open-info { display: none; }
+            #close-info {
+                display: block;
+                position: sticky;
+                top: 0;
+                z-index: 1;
+                width: 100%;
+                min-height: 44px;
+                padding: 8px 16px;
+                background: var(--panel-solid);
+                border: 0;
+                border-bottom: 1px solid var(--border);
+                color: var(--accent);
+                text-align: left;
+                font: inherit;
+                cursor: pointer;
+            }
+            #stats, #node-list {
+                position: static;
+                width: auto;
+                min-width: 0;
+                max-width: none;
+                max-height: none;
+                overflow: visible;
+                border: 0;
+                background: transparent;
+                backdrop-filter: none;
+            }
+            #stats { border-bottom: 1px solid var(--border); }
             .leaflet-control-zoom { display: none; }
 
             /* Larger slider thumb for easier touch interaction */
@@ -297,11 +332,18 @@
                 height: 20px; width: 20px;
             }
         }
+        @media (prefers-reduced-motion: reduce) {
+            #info-drawer { transition: none; }
+        }
     </style>
 </head>
 <body>
     <div id="map"></div>
+    <button id="open-info" type="button" aria-controls="info-drawer" aria-expanded="false">☰ &nbsp; network info</button>
+    <div id="info-backdrop" hidden></div>
 
+    <aside id="info-drawer" aria-label="Network information">
+    <button id="close-info" type="button" aria-label="Close network information">× &nbsp; close</button>
     <div id="stats" class="panel">
         <div class="brand">
             <img class="logo" src="/blocknet.png" alt="blocknet" />
@@ -332,7 +374,6 @@
         <div id="network-status" role="status">BNT node metrics unavailable</div>
         <div id="status">Connecting...</div>
         <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
-        <button id="toggle-node-list" class="toggle-btn" type="button">hide list</button>
     </div>
 
     <div id="node-list" class="panel">
@@ -345,6 +386,7 @@
         -->
         <div id="nodes-container"></div>
     </div>
+    </aside>
 
     <script type="module">
         import * as L from 'leaflet';
@@ -714,18 +756,20 @@
             container.innerHTML = sorted.map(n => {
                 const geo = hasGeo(n);
                 const cls = geo ? 'node-entry' : 'node-entry no-geo';
-                const click = geo ? `onclick="flyTo(${n.lat}, ${n.lng})"` : '';
+                const tag = geo ? 'button' : 'div';
+                const click = geo ? `type="button" onclick="flyTo(${n.lat}, ${n.lng})"` : '';
                 return `
-                    <div class="${cls}" ${click}>
+                    <${tag} class="${cls}" ${click}>
                         <span class="node-ip">${n.ip}</span>
                         <span class="node-location">${n.city ? n.city + ', ' : ''}${n.country || 'Unknown'}</span>
-                    </div>
+                    </${tag}>
                 `;
             }).join('');
         }
 
         function flyTo(lat, lng) {
             if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+            if (mobileQuery.matches) setDrawerOpen(false);
             const nearbyLng = lng + 360 * Math.round((map.getCenter().lng - lng) / 360);
             map.flyTo([lat, nearbyLng], 6, { duration: 1 });
         }
@@ -779,47 +823,44 @@
             }
         }
 
-        // Mobile UX: collapse node list by default so the overlays don't collide.
-        const nodeListEl = document.getElementById('node-list');
-        const toggleNodeListBtn = document.getElementById('toggle-node-list');
+        const mobileQuery = window.matchMedia('(max-width: 760px), (max-height: 500px) and (max-width: 1100px)');
+        const drawer = document.getElementById('info-drawer');
+        const openInfo = document.getElementById('open-info');
+        const closeInfo = document.getElementById('close-info');
+        const backdrop = document.getElementById('info-backdrop');
 
-        function isMobile() {
-            return window.matchMedia && window.matchMedia('(max-width: 760px)').matches;
+        function setDrawerOpen(open, restoreFocus = true) {
+            const mobileOpen = mobileQuery.matches && open;
+            document.body.classList.toggle('mobile-drawer-open', mobileOpen);
+            openInfo.setAttribute('aria-expanded', String(mobileOpen));
+            backdrop.hidden = !mobileOpen;
+            drawer.inert = mobileQuery.matches && !mobileOpen;
+            if (mobileOpen) closeInfo.focus();
+            else if (restoreFocus && mobileQuery.matches) openInfo.focus();
         }
 
-        function setNodeListCollapsed(collapsed) {
-            if (!nodeListEl) return;
-            nodeListEl.classList.toggle('collapsed', collapsed);
-            if (toggleNodeListBtn) {
-                toggleNodeListBtn.textContent = collapsed ? 'show list' : 'hide list';
+        openInfo.addEventListener('click', () => setDrawerOpen(true));
+        closeInfo.addEventListener('click', () => setDrawerOpen(false));
+        backdrop.addEventListener('click', () => setDrawerOpen(false));
+        document.addEventListener('keydown', (event) => {
+            if (!document.body.classList.contains('mobile-drawer-open')) return;
+            if (event.key === 'Escape') {
+                setDrawerOpen(false);
+            } else if (event.key === 'Tab') {
+                const items = [...drawer.querySelectorAll('button, a, input, [tabindex]:not([tabindex="-1"])')]
+                    .filter(el => !el.disabled && el.getClientRects().length);
+                const first = items[0], last = items[items.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
             }
-        }
-
-        if (toggleNodeListBtn) {
-            toggleNodeListBtn.addEventListener('click', () => {
-                const collapsed = nodeListEl?.classList.contains('collapsed');
-                setNodeListCollapsed(!collapsed);
-            });
-        }
-
-        // Also allow tapping the node-list header to expand/collapse on mobile.
-        const nodeListHeader = document.querySelector('#node-list h2');
-        if (nodeListHeader) {
-            nodeListHeader.addEventListener('click', () => {
-                if (!isMobile()) return;
-                const collapsed = nodeListEl?.classList.contains('collapsed');
-                setNodeListCollapsed(!collapsed);
-            });
-        }
-
-        let wasMobile = isMobile();
-        setNodeListCollapsed(wasMobile);
-        window.addEventListener('resize', () => {
-            const mobileNow = isMobile();
-            if (mobileNow === wasMobile) return;
-            wasMobile = mobileNow;
-            setNodeListCollapsed(wasMobile);
         });
+        mobileQuery.addEventListener('change', () => setDrawerOpen(false, false));
+        setDrawerOpen(false, false);
 
         // Connection opacity slider.
         /*
