@@ -34,11 +34,16 @@ func TestNodeCacheSurvivesPartialCrawlAndExpiresAfterTwelveHours(t *testing.T) {
 	first := map[string]*DiscoveredNode{
 		"192.0.2.1": {IP: "192.0.2.1", ObservedAt: now.Unix()},
 		"192.0.2.2": {IP: "192.0.2.2", ObservedAt: now.Unix()},
+		"192.0.2.3": {IP: "192.0.2.3", ObservedAt: now.Unix()},
 	}
-	c.completeCrawl(first)
+	c.completeCrawl(first, map[string]bool{"192.0.2.1": true, "192.0.2.2": true})
 	firstCrawlTime := c.LastCrawl()
-	if got := c.Nodes(); len(got) != 2 || !got[0].InLastCrawl || !got[1].InLastCrawl {
-		t.Fatalf("initial complete crawl = %+v", got)
+	byIP := map[string]*DiscoveredNode{}
+	for _, node := range c.Nodes() {
+		byIP[node.IP] = node
+	}
+	if len(byIP) != 3 || !byIP["192.0.2.1"].InLastCrawl || !byIP["192.0.2.2"].InLastCrawl || byIP["192.0.2.3"].InLastCrawl {
+		t.Fatalf("reported peer was marked responsive: %+v", byIP)
 	}
 
 	now = now.Add(time.Hour)
@@ -46,22 +51,22 @@ func TestNodeCacheSurvivesPartialCrawlAndExpiresAfterTwelveHours(t *testing.T) {
 		"192.0.2.2": {IP: "192.0.2.2", ObservedAt: now.Unix()},
 	}
 	c.publishNodes(second)
-	if got := c.Nodes(); len(got) != 2 {
+	if got := c.Nodes(); len(got) != 3 {
 		t.Fatalf("partial crawl dropped cached nodes: %+v", got)
 	}
 	if !c.LastCrawl().Equal(firstCrawlTime) {
 		t.Fatal("partial crawl replaced the latest completed crawl time")
 	}
-	c.completeCrawl(second)
-	byIP := map[string]*DiscoveredNode{}
+	c.completeCrawl(second, map[string]bool{"192.0.2.2": true})
+	byIP = map[string]*DiscoveredNode{}
 	for _, node := range c.Nodes() {
 		byIP[node.IP] = node
 	}
-	if len(byIP) != 2 || byIP["192.0.2.1"].InLastCrawl || !byIP["192.0.2.2"].InLastCrawl {
+	if len(byIP) != 3 || byIP["192.0.2.1"].InLastCrawl || !byIP["192.0.2.2"].InLastCrawl || byIP["192.0.2.3"].InLastCrawl {
 		t.Fatalf("latest-crawl status wrong: %+v", byIP)
 	}
 	now = now.Add(time.Minute)
-	c.completeCrawl(nil)
+	c.completeCrawl(nil, nil)
 	for _, node := range c.Nodes() {
 		if node.InLastCrawl {
 			t.Fatalf("empty completed crawl reported a cached node as current: %+v", node)

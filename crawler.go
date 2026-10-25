@@ -91,7 +91,7 @@ func (c *Crawler) clock() time.Time {
 }
 
 // Nodes returns nodes observed in the last 12 hours. Cached nodes are not
-// necessarily online; InLastCrawl distinguishes the latest completed crawl.
+// necessarily online; InLastCrawl means the peer answered the latest crawl.
 func (c *Crawler) Nodes() []*DiscoveredNode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -152,6 +152,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	// BFS crawl: visited tracks peer IDs we've already queried.
 	visited := make(map[peer.ID]bool)
 	discovered := make(map[string]*DiscoveredNode) // keyed by IP
+	responded := make(map[string]bool)             // peers that answered PEX
 	queue := make([]peer.AddrInfo, 0, 256)
 
 	// Seed the queue. Do not report a seed as observed until it responds.
@@ -191,6 +192,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				continue
 			}
 			if ip := extractIP(addr); ip != "" {
+				responded[ip] = true
 				discovered[ip] = &DiscoveredNode{
 					PeerID: pi.ID.String(), IP: ip, Addrs: []string{addr.String()},
 					LastSeen: observedAt, ObservedAt: observedAt,
@@ -254,7 +256,7 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		_ = conn.Close()
 	}
 
-	c.completeCrawl(discovered)
+	c.completeCrawl(discovered, responded)
 
 	log.Printf("crawler: found %d unique IPs from %d peers", len(discovered), len(visited))
 	return nil
@@ -268,14 +270,14 @@ func (c *Crawler) publishNodes(discovered map[string]*DiscoveredNode) {
 	c.mergeNodesLocked(discovered, c.clock())
 }
 
-func (c *Crawler) completeCrawl(discovered map[string]*DiscoveredNode) {
+func (c *Crawler) completeCrawl(discovered map[string]*DiscoveredNode, responded map[string]bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.clock()
 	c.mergeNodesLocked(discovered, now)
 	for ip, node := range c.nodes {
 		copy := *node
-		_, copy.InLastCrawl = discovered[ip]
+		copy.InLastCrawl = responded[ip]
 		c.nodes[ip] = &copy
 	}
 	c.lastCrawl = now

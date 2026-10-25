@@ -28,6 +28,8 @@ jobs:
         run: go test ./...
       - name: Vet
         run: go vet ./...
+      - name: Test map markers
+        run: node --test web_markers_test.mjs
       - name: Verify container build
         run: docker build -t blocknet-nodemap:ci .
 

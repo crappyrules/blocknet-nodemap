@@ -359,7 +359,7 @@
             <span class="stat-value" id="node-count">—</span>
         </div>
 		<div class="stat-row">
-			<span class="stat-label">Latest crawl</span>
+			<span class="stat-label">Responded</span>
 			<span class="stat-value" id="current-count">—</span>
 		</div>
         <div class="stat-row">
@@ -380,7 +380,7 @@
         </div>
         <div id="network-status" role="status">BNT node metrics unavailable</div>
         <div id="status">Connecting...</div>
-		<div class="map-note">Green: seen in latest crawl. Dim: seen earlier within 12h. Discovery is not an online guarantee.</div>
+		<div class="map-note">Green: answered the latest crawl. Dim: reported within 12h but did not answer. A dim ring around green means both share a map location. Neither status guarantees a node is online now.</div>
         <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
     </div>
 
@@ -453,18 +453,20 @@
         });
 
         // Custom glowing marker icon.
-        function createNodeIcon(current) {
+        function createNodeIcon(current, overlapping = false) {
+            const size = overlapping ? 24 : 10;
             return L.divIcon({
                 className: '',
                 html: `<div style="
-                    width: 10px; height: 10px;
-                    background: ${current ? 'var(--accent)' : '#83927a'};
-                    border: 1px solid ${current ? 'rgba(166, 255, 0, 0.35)' : 'rgba(180, 200, 170, 0.35)'};
+                    box-sizing: border-box;
+                    width: ${size}px; height: ${size}px;
+                    background: ${current ? 'var(--accent)' : overlapping ? 'rgba(131, 146, 122, 0.12)' : '#83927a'};
+                    border: ${overlapping ? '2px' : '1px'} solid ${current ? 'rgba(166, 255, 0, 0.35)' : overlapping ? 'rgba(180, 200, 170, 0.8)' : 'rgba(180, 200, 170, 0.35)'};
                     border-radius: 50%;
                     box-shadow: ${current ? '0 0 8px 3px rgba(166, 255, 0, 0.28)' : 'none'};
                 "></div>`,
-                iconSize: [10, 10],
-                iconAnchor: [5, 5],
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
             });
         }
 
@@ -526,6 +528,9 @@
             markers.clearLayers();
 			const currentIcon = createNodeIcon(true);
 			const cachedIcon = createNodeIcon(false);
+			const cachedOverlapIcon = createNodeIcon(false, true);
+			const currentLocations = new Set(nodes.filter(node => node.in_last_crawl && hasGeo(node))
+				.map(node => `${node.lat},${node.lng}`));
 
             for (const node of nodes) {
                 if (!hasGeo(node)) continue;
@@ -537,14 +542,16 @@
                         <div><span class="label">Location:</span> <span class="value">${escapeHTML(node.city || '?')}, ${escapeHTML(node.country || '?')}</span></div>
                         <div><span class="label">ISP:</span> <span class="value">${escapeHTML(node.isp || '?')}</span></div>
                         <div><span class="label">Observed:</span> <span class="value">${formatTime(node.observed_at)}</span></div>
-					<div><span class="label">Status:</span> <span class="value">${node.in_last_crawl ? 'Latest crawl' : '12h cache'}</span></div>
+					<div><span class="label">Status:</span> <span class="value">${node.in_last_crawl ? 'Responded to latest crawl' : '12h cache'}</span></div>
                     </div>
                 `;
                 // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
                 // One copy on each neighboring world keeps nodes visible across the seam.
+                const icon = node.in_last_crawl ? currentIcon
+                    : currentLocations.has(`${node.lat},${node.lng}`) ? cachedOverlapIcon : cachedIcon;
                 for (const offset of [-360, 0, 360]) {
                     markers.addLayer(L.marker([node.lat, node.lng + offset], {
-                        icon: node.in_last_crawl ? currentIcon : cachedIcon,
+                        icon,
                         pane: node.in_last_crawl ? 'currentNodes' : 'cachedNodes',
                     }).bindPopup(popup));
                 }
@@ -773,7 +780,7 @@
 
         function updateNodeList(nodes) {
             const container = document.getElementById('nodes-container');
-            // Show nodes from the latest crawl first, then sort by country and IP.
+            // Show peers that responded first, then sort by country and IP.
             const sorted = [...nodes].sort((a, b) => {
 				if (a.in_last_crawl !== b.in_last_crawl) return a.in_last_crawl ? -1 : 1;
                 const ca = (a.country || '').localeCompare(b.country || '');
@@ -790,7 +797,7 @@
                     <${tag} class="${cls}" ${click}>
                         <span class="node-ip">${escapeHTML(n.ip)}</span>
                         <span class="node-location">${escapeHTML(n.city ? n.city + ', ' : '')}${escapeHTML(n.country || 'Unknown')}</span>
-						<span class="node-state">${n.in_last_crawl ? 'latest' : 'cached'}</span>
+						<span class="node-state">${n.in_last_crawl ? 'responded' : 'cached'}</span>
                     </${tag}>
                 `;
             }).join('');
