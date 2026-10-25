@@ -1,14 +1,19 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestPublishNodesCopiesMutableCrawlData(t *testing.T) {
-	c := &Crawler{}
+	now := time.Unix(1_000_000, 0)
+	c := &Crawler{now: func() time.Time { return now }}
 	discovered := map[string]*DiscoveredNode{
 		"192.0.2.1": {
-			IP:       "192.0.2.1",
-			Addrs:    []string{"/ip4/192.0.2.1/tcp/28080"},
-			LastSeen: 1,
+			IP:         "192.0.2.1",
+			Addrs:      []string{"/ip4/192.0.2.1/tcp/28080"},
+			LastSeen:   1,
+			ObservedAt: now.Unix(),
 		},
 	}
 
@@ -20,5 +25,55 @@ func TestPublishNodesCopiesMutableCrawlData(t *testing.T) {
 	nodes := c.Nodes()
 	if len(nodes) != 1 || nodes[0].LastSeen != 1 || nodes[0].Addrs[0] != "/ip4/192.0.2.1/tcp/28080" {
 		t.Fatalf("published nodes changed with the ongoing crawl: %+v", nodes)
+	}
+}
+
+func TestNodeCacheSurvivesPartialCrawlAndExpiresAfterTwelveHours(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	c := &Crawler{now: func() time.Time { return now }}
+	first := map[string]*DiscoveredNode{
+		"192.0.2.1": {IP: "192.0.2.1", ObservedAt: now.Unix()},
+		"192.0.2.2": {IP: "192.0.2.2", ObservedAt: now.Unix()},
+	}
+	c.completeCrawl(first)
+	firstCrawlTime := c.LastCrawl()
+	if got := c.Nodes(); len(got) != 2 || !got[0].InLastCrawl || !got[1].InLastCrawl {
+		t.Fatalf("initial complete crawl = %+v", got)
+	}
+
+	now = now.Add(time.Hour)
+	second := map[string]*DiscoveredNode{
+		"192.0.2.2": {IP: "192.0.2.2", ObservedAt: now.Unix()},
+	}
+	c.publishNodes(second)
+	if got := c.Nodes(); len(got) != 2 {
+		t.Fatalf("partial crawl dropped cached nodes: %+v", got)
+	}
+	if !c.LastCrawl().Equal(firstCrawlTime) {
+		t.Fatal("partial crawl replaced the latest completed crawl time")
+	}
+	c.completeCrawl(second)
+	byIP := map[string]*DiscoveredNode{}
+	for _, node := range c.Nodes() {
+		byIP[node.IP] = node
+	}
+	if len(byIP) != 2 || byIP["192.0.2.1"].InLastCrawl || !byIP["192.0.2.2"].InLastCrawl {
+		t.Fatalf("latest-crawl status wrong: %+v", byIP)
+	}
+	now = now.Add(time.Minute)
+	c.completeCrawl(nil)
+	for _, node := range c.Nodes() {
+		if node.InLastCrawl {
+			t.Fatalf("empty completed crawl reported a cached node as current: %+v", node)
+		}
+	}
+
+	now = time.Unix(1_000_000, 0).Add(nodeCacheWindow + time.Second)
+	if got := c.Nodes(); len(got) != 1 || got[0].IP != "192.0.2.2" {
+		t.Fatalf("expired entry still visible: %+v", got)
+	}
+	c.publishNodes(nil)
+	if len(c.nodes) != 1 {
+		t.Fatalf("expired entry retained in cache: %+v", c.nodes)
 	}
 }

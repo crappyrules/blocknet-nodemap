@@ -30,14 +30,16 @@ var defaultSeeds = []string{
 
 // NodeInfo is the JSON structure served by /api/nodes.
 type NodeInfo struct {
-	PeerID   string  `json:"peer_id"`
-	IP       string  `json:"ip"`
-	Lat      float64 `json:"lat"`
-	Lng      float64 `json:"lng"`
-	Country  string  `json:"country"`
-	City     string  `json:"city"`
-	ISP      string  `json:"isp"`
-	LastSeen int64   `json:"last_seen"`
+	PeerID      string  `json:"peer_id"`
+	IP          string  `json:"ip"`
+	Lat         float64 `json:"lat"`
+	Lng         float64 `json:"lng"`
+	Country     string  `json:"country"`
+	City        string  `json:"city"`
+	ISP         string  `json:"isp"`
+	LastSeen    int64   `json:"last_seen"`
+	ObservedAt  int64   `json:"observed_at"`
+	InLastCrawl bool    `json:"in_last_crawl"`
 }
 
 func main() {
@@ -107,9 +109,11 @@ func main() {
 		infos := make([]NodeInfo, 0, len(nodes))
 		for _, n := range nodes {
 			info := NodeInfo{
-				PeerID:   n.PeerID,
-				IP:       n.IP,
-				LastSeen: n.LastSeen,
+				PeerID:      n.PeerID,
+				IP:          n.IP,
+				LastSeen:    n.LastSeen,
+				ObservedAt:  n.ObservedAt,
+				InLastCrawl: n.InLastCrawl,
 			}
 			if gr, ok := geoResults[n.IP]; ok {
 				info.Lat = gr.Lat
@@ -129,7 +133,11 @@ func main() {
 	mux.HandleFunc("GET /api/stats", func(w http.ResponseWriter, r *http.Request) {
 		nodes := crawler.Nodes()
 		countries := make(map[string]bool)
+		currentNodes := 0
 		for _, n := range nodes {
+			if n.InLastCrawl {
+				currentNodes++
+			}
 			if gr := geo.Lookup(n.IP); gr != nil {
 				countries[gr.Country] = true
 			}
@@ -137,9 +145,11 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"total_nodes": len(nodes),
-			"countries":   len(countries),
-			"last_crawl":  crawler.LastCrawl().Unix(),
+			"total_nodes":   len(nodes),
+			"current_nodes": currentNodes,
+			"cache_hours":   int(nodeCacheWindow.Hours()),
+			"countries":     len(countries),
+			"last_crawl":    crawler.LastCrawl().Unix(),
 		})
 	})
 

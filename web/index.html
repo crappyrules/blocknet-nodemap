@@ -134,6 +134,7 @@
         }
         #status.crawling { color: #ffb300; }
         #status.ready { color: var(--accent); }
+		.map-note { margin-top: 7px; color: var(--muted2); font-size: 10px; line-height: 1.4; }
         #basemap-status {
             margin-top: 6px;
             color: #ffb300;
@@ -174,6 +175,8 @@
         .node-entry:hover, .node-entry:focus-visible { background: rgba(255, 255, 255, 0.04); }
         .node-entry.no-geo { cursor: default; opacity: 0.65; }
         .node-entry.no-geo:hover { background: transparent; }
+		.node-entry.cached { opacity: 0.65; }
+		.node-state { color: var(--muted2); font-size: 10px; float: right; }
 
         .node-ip { color: var(--accent); font-family: inherit; }
         .node-location { color: var(--muted); margin-left: 10px; }
@@ -352,9 +355,13 @@
         </div>
 
         <div class="stat-row">
-            <span class="stat-label">Nodes</span>
+            <span class="stat-label">Seen in 12h</span>
             <span class="stat-value" id="node-count">—</span>
         </div>
+		<div class="stat-row">
+			<span class="stat-label">Latest crawl</span>
+			<span class="stat-value" id="current-count">—</span>
+		</div>
         <div class="stat-row">
             <span class="stat-label">Countries</span>
             <span class="stat-value" id="country-count">—</span>
@@ -373,6 +380,7 @@
         </div>
         <div id="network-status" role="status">BNT node metrics unavailable</div>
         <div id="status">Connecting...</div>
+		<div class="map-note">Green: seen in latest crawl. Dim: seen earlier within 12h. Discovery is not an online guarantee.</div>
         <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
     </div>
 
@@ -445,15 +453,15 @@
         });
 
         // Custom glowing marker icon.
-        function createNodeIcon() {
+        function createNodeIcon(current) {
             return L.divIcon({
                 className: '',
                 html: `<div style="
                     width: 10px; height: 10px;
-                    background: var(--accent);
-                    border: 1px solid rgba(166, 255, 0, 0.35);
+                    background: ${current ? 'var(--accent)' : '#83927a'};
+                    border: 1px solid ${current ? 'rgba(166, 255, 0, 0.35)' : 'rgba(180, 200, 170, 0.35)'};
                     border-radius: 50%;
-                    box-shadow: 0 0 8px 3px rgba(166, 255, 0, 0.28);
+                    box-shadow: ${current ? '0 0 8px 3px rgba(166, 255, 0, 0.28)' : 'none'};
                 "></div>`,
                 iconSize: [10, 10],
                 iconAnchor: [5, 5],
@@ -499,28 +507,36 @@
             return true;
         }
 
+		function escapeHTML(value) {
+			return String(value ?? '').replace(/[&<>"']/g, char => ({
+				'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+			})[char]);
+		}
+
         function updateMap(nodes) {
             // updateConnections(nodes);
 
             markers.clearLayers();
-            const icon = createNodeIcon();
+			const currentIcon = createNodeIcon(true);
+			const cachedIcon = createNodeIcon(false);
 
             for (const node of nodes) {
                 if (!hasGeo(node)) continue;
 
                 const popup = `
                     <div class="popup-content">
-                        <div><span class="label">IP:</span> <span class="value">${node.ip}</span></div>
-                        <div><span class="label">Peer:</span> <span class="value">${node.peer_id.substring(0, 16)}…</span></div>
-                        <div><span class="label">Location:</span> <span class="value">${node.city || '?'}, ${node.country || '?'}</span></div>
-                        <div><span class="label">ISP:</span> <span class="value">${node.isp || '?'}</span></div>
-                        <div><span class="label">Last Seen:</span> <span class="value">${formatTime(node.last_seen)}</span></div>
+                        <div><span class="label">IP:</span> <span class="value">${escapeHTML(node.ip)}</span></div>
+                        <div><span class="label">Peer:</span> <span class="value">${escapeHTML(node.peer_id.substring(0, 16))}…</span></div>
+                        <div><span class="label">Location:</span> <span class="value">${escapeHTML(node.city || '?')}, ${escapeHTML(node.country || '?')}</span></div>
+                        <div><span class="label">ISP:</span> <span class="value">${escapeHTML(node.isp || '?')}</span></div>
+                        <div><span class="label">Observed:</span> <span class="value">${formatTime(node.observed_at)}</span></div>
+					<div><span class="label">Status:</span> <span class="value">${node.in_last_crawl ? 'Latest crawl' : '12h cache'}</span></div>
                     </div>
                 `;
                 // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
                 // One copy on each neighboring world keeps nodes visible across the seam.
                 for (const offset of [-360, 0, 360]) {
-                    markers.addLayer(L.marker([node.lat, node.lng + offset], { icon }).bindPopup(popup));
+                    markers.addLayer(L.marker([node.lat, node.lng + offset], { icon: node.in_last_crawl ? currentIcon : cachedIcon }).bindPopup(popup));
                 }
             }
         }
@@ -734,6 +750,7 @@
 
         function updateStats(stats) {
             document.getElementById('node-count').textContent = stats.total_nodes || 0;
+			document.getElementById('current-count').textContent = stats.current_nodes || 0;
             document.getElementById('country-count').textContent = stats.countries || 0;
 
             const lastCrawl = stats.last_crawl;
@@ -746,8 +763,9 @@
 
         function updateNodeList(nodes) {
             const container = document.getElementById('nodes-container');
-            // Sort by country then IP.
+            // Show nodes from the latest crawl first, then sort by country and IP.
             const sorted = [...nodes].sort((a, b) => {
+				if (a.in_last_crawl !== b.in_last_crawl) return a.in_last_crawl ? -1 : 1;
                 const ca = (a.country || '').localeCompare(b.country || '');
                 if (ca !== 0) return ca;
                 return (a.ip || '').localeCompare(b.ip || '');
@@ -755,13 +773,14 @@
 
             container.innerHTML = sorted.map(n => {
                 const geo = hasGeo(n);
-                const cls = geo ? 'node-entry' : 'node-entry no-geo';
+                const cls = `node-entry${geo ? '' : ' no-geo'}${n.in_last_crawl ? '' : ' cached'}`;
                 const tag = geo ? 'button' : 'div';
                 const click = geo ? `type="button" onclick="flyTo(${n.lat}, ${n.lng})"` : '';
                 return `
                     <${tag} class="${cls}" ${click}>
-                        <span class="node-ip">${n.ip}</span>
-                        <span class="node-location">${n.city ? n.city + ', ' : ''}${n.country || 'Unknown'}</span>
+                        <span class="node-ip">${escapeHTML(n.ip)}</span>
+                        <span class="node-location">${escapeHTML(n.city ? n.city + ', ' : '')}${escapeHTML(n.country || 'Unknown')}</span>
+						<span class="node-state">${n.in_last_crawl ? 'latest' : 'cached'}</span>
                     </${tag}>
                 `;
             }).join('');

@@ -26,6 +26,7 @@ const (
 	maxPEXPayload   = 512 * 1024
 	crawlTimeout    = 30 * time.Second
 	exchangeTimeout = 15 * time.Second
+	nodeCacheWindow = 12 * time.Hour
 )
 
 // PeerRecord matches blocknet's PEX peer record format.
@@ -38,10 +39,12 @@ type PeerRecord struct {
 
 // DiscoveredNode represents a node found during crawling.
 type DiscoveredNode struct {
-	PeerID   string   `json:"peer_id"`
-	IP       string   `json:"ip"`
-	Addrs    []string `json:"addrs"`
-	LastSeen int64    `json:"last_seen"`
+	PeerID      string   `json:"peer_id"`
+	IP          string   `json:"ip"`
+	Addrs       []string `json:"addrs"`
+	LastSeen    int64    `json:"last_seen"`
+	ObservedAt  int64    `json:"observed_at"`
+	InLastCrawl bool     `json:"in_last_crawl"`
 }
 
 // Crawler crawls the blocknet P2P network via PEX.
@@ -53,6 +56,7 @@ type Crawler struct {
 
 	lastCrawl time.Time
 	crawling  bool
+	now       func() time.Time
 }
 
 // NewCrawler creates a new network crawler.
@@ -70,6 +74,7 @@ func NewCrawler(seeds []string) (*Crawler, error) {
 		host:  h,
 		seeds: seeds,
 		nodes: make(map[string]*DiscoveredNode),
+		now:   time.Now,
 	}, nil
 }
 
@@ -78,14 +83,25 @@ func (c *Crawler) Close() error {
 	return c.host.Close()
 }
 
-// Nodes returns the current snapshot of discovered nodes.
+func (c *Crawler) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// Nodes returns nodes observed in the last 12 hours. Cached nodes are not
+// necessarily online; InLastCrawl distinguishes the latest completed crawl.
 func (c *Crawler) Nodes() []*DiscoveredNode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	out := make([]*DiscoveredNode, 0, len(c.nodes))
+	cutoff := c.clock().Add(-nodeCacheWindow).Unix()
 	for _, n := range c.nodes {
-		out = append(out, n)
+		if n.ObservedAt > cutoff {
+			out = append(out, n)
+		}
 	}
 	return out
 }
@@ -110,7 +126,6 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	defer func() {
 		c.mu.Lock()
 		c.crawling = false
-		c.lastCrawl = time.Now()
 		c.mu.Unlock()
 	}()
 
@@ -139,24 +154,11 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 	discovered := make(map[string]*DiscoveredNode) // keyed by IP
 	queue := make([]peer.AddrInfo, 0, 256)
 
-	// Seed the queue.
+	// Seed the queue. Do not report a seed as observed until it responds.
 	for _, si := range seedInfos {
 		queue = append(queue, si)
-		// Also record seeds as discovered nodes.
-		for _, addr := range si.Addrs {
-			if ip := extractIP(addr); ip != "" {
-				discovered[ip] = &DiscoveredNode{
-					PeerID:   si.ID.String(),
-					IP:       ip,
-					Addrs:    []string{addr.String()},
-					LastSeen: time.Now().Unix(),
-				}
-			}
-		}
 	}
-	// Make known seeds visible while the full network crawl is still running.
-	c.publishNodes(discovered)
-	lastPublished := time.Now()
+	lastPublished := c.clock()
 
 	for len(queue) > 0 {
 		select {
@@ -177,11 +179,23 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		// Connect and exchange.
 		records, err := c.exchangeWith(ctx, pi)
 		if err != nil {
-			if time.Since(lastPublished) >= 5*time.Second {
+			if c.clock().Sub(lastPublished) >= 5*time.Second {
 				c.publishNodes(discovered)
-				lastPublished = time.Now()
+				lastPublished = c.clock()
 			}
 			continue
+		}
+		observedAt := c.clock().Unix()
+		for _, addr := range pi.Addrs {
+			if !isRoutable(addr) {
+				continue
+			}
+			if ip := extractIP(addr); ip != "" {
+				discovered[ip] = &DiscoveredNode{
+					PeerID: pi.ID.String(), IP: ip, Addrs: []string{addr.String()},
+					LastSeen: observedAt, ObservedAt: observedAt,
+				}
+			}
 		}
 
 		// Process discovered peers.
@@ -207,16 +221,18 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 			for _, addr := range addrs {
 				if ip := extractIP(addr); ip != "" {
 					if existing, ok := discovered[ip]; ok {
+						existing.ObservedAt = observedAt
 						// Update last seen if newer.
 						if rec.LastSeen > existing.LastSeen {
 							existing.LastSeen = rec.LastSeen
 						}
 					} else {
 						discovered[ip] = &DiscoveredNode{
-							PeerID:   rec.ID,
-							IP:       ip,
-							Addrs:    addrStrs,
-							LastSeen: rec.LastSeen,
+							PeerID:     rec.ID,
+							IP:         ip,
+							Addrs:      addrStrs,
+							LastSeen:   rec.LastSeen,
+							ObservedAt: observedAt,
 						}
 					}
 				}
@@ -227,9 +243,9 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 				queue = append(queue, peer.AddrInfo{ID: pid, Addrs: addrs})
 			}
 		}
-		if time.Since(lastPublished) >= 5*time.Second {
+		if c.clock().Sub(lastPublished) >= 5*time.Second {
 			c.publishNodes(discovered)
-			lastPublished = time.Now()
+			lastPublished = c.clock()
 		}
 	}
 
@@ -238,23 +254,54 @@ func (c *Crawler) Crawl(ctx context.Context) error {
 		_ = conn.Close()
 	}
 
-	c.publishNodes(discovered)
+	c.completeCrawl(discovered)
 
 	log.Printf("crawler: found %d unique IPs from %d peers", len(discovered), len(visited))
 	return nil
 }
 
-// publishNodes gives API readers an immutable snapshot while Crawl keeps writing.
+// publishNodes merges a partial crawl into the 12-hour cache. It never replaces
+// the previous snapshot with a handful of seeds at the start of a new crawl.
 func (c *Crawler) publishNodes(discovered map[string]*DiscoveredNode) {
-	snapshot := make(map[string]*DiscoveredNode, len(discovered))
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mergeNodesLocked(discovered, c.clock())
+}
+
+func (c *Crawler) completeCrawl(discovered map[string]*DiscoveredNode) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.clock()
+	c.mergeNodesLocked(discovered, now)
+	for ip, node := range c.nodes {
+		copy := *node
+		_, copy.InLastCrawl = discovered[ip]
+		c.nodes[ip] = &copy
+	}
+	c.lastCrawl = now
+}
+
+func (c *Crawler) mergeNodesLocked(discovered map[string]*DiscoveredNode, now time.Time) {
+	if c.nodes == nil {
+		c.nodes = make(map[string]*DiscoveredNode)
+	}
+	cutoff := now.Add(-nodeCacheWindow).Unix()
+	for ip, node := range c.nodes {
+		if node.ObservedAt <= cutoff {
+			delete(c.nodes, ip)
+		}
+	}
 	for ip, node := range discovered {
+		if node.ObservedAt <= cutoff {
+			continue
+		}
 		copy := *node
 		copy.Addrs = append([]string(nil), node.Addrs...)
-		snapshot[ip] = &copy
+		if previous := c.nodes[ip]; previous != nil {
+			copy.InLastCrawl = previous.InLastCrawl
+		}
+		c.nodes[ip] = &copy
 	}
-	c.mu.Lock()
-	c.nodes = snapshot
-	c.mu.Unlock()
 }
 
 // exchangeWith connects to a peer and requests their peer list via PEX.
