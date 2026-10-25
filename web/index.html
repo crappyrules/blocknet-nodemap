@@ -472,6 +472,13 @@
         const connectionRenderer = L.canvas({ padding: 0.5 });
         let connections = L.layerGroup().addTo(map);
 
+        // Keep older observations underneath nodes seen in the latest crawl,
+        // regardless of the order returned by the API.
+        const cachedNodePane = map.createPane('cachedNodes');
+        cachedNodePane.style.zIndex = 600;
+        const currentNodePane = map.createPane('currentNodes');
+        currentNodePane.style.zIndex = 610;
+
         let markers = L.layerGroup().addTo(map);
         let nodeData = [];
         let connOpacity = 1.0;
@@ -536,7 +543,10 @@
                 // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
                 // One copy on each neighboring world keeps nodes visible across the seam.
                 for (const offset of [-360, 0, 360]) {
-                    markers.addLayer(L.marker([node.lat, node.lng + offset], { icon: node.in_last_crawl ? currentIcon : cachedIcon }).bindPopup(popup));
+                    markers.addLayer(L.marker([node.lat, node.lng + offset], {
+                        icon: node.in_last_crawl ? currentIcon : cachedIcon,
+                        pane: node.in_last_crawl ? 'currentNodes' : 'cachedNodes',
+                    }).bindPopup(popup));
                 }
             }
         }
