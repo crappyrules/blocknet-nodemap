@@ -6,7 +6,7 @@ A small Go service that crawls the Blocknet libp2p network (via PEX) and serves 
   - If you run multiple peers behind the same public IP (NAT), they will appear as **one** node on the map.
 - Only peers advertising **publicly routable** IP multiaddrs are kept.
 - Geolocation is performed via the free `ip-api.com` batch endpoint; nodes without geo data won’t render as map markers.
-- The map retains nodes **reported to or reached by the crawler within the last 12 hours** so a partial or missed crawl does not empty the map. Green nodes answered PEX in the latest completed crawl; dim nodes were reported within the 12-hour window but did not answer that crawl. A response is evidence from the crawl, not a guarantee that the peer is online now.
+- The map retains nodes **reported to or reached by the crawler within the last 12 hours** so a partial or missed crawl does not empty the map. Green nodes have a peer-reported `last_seen` timestamp within 10 minutes; dim nodes have older reports within the 12-hour cache. A peer-reported timestamp is not proof that the address is currently reachable.
 - The cache is in memory. Restarting the service starts a new 12-hour window.
 
 ## Build
@@ -26,8 +26,8 @@ Flags:
 
 Endpoints:
 - `GET /` – web UI
-- `GET /api/nodes` – node list (with geo fields when available)
-- `GET /api/stats` – 12-hour `total_nodes`, `current_nodes` that answered the latest completed crawl, `countries`, and `last_crawl`
+- `GET /api/nodes` – node list (with geo fields when available), `recently_seen` for a report within 10 minutes, and `in_last_crawl` for a direct PEX reply in the latest completed crawl
+- `GET /api/stats` – 12-hour `total_nodes`, `recent_nodes` from reports within 10 minutes, `current_nodes` that answered the latest completed crawl, `countries`, and `last_crawl`
 - `GET /api/network` – cached BNT `network_hashrate` (H/s) and next-block `difficulty` from the node's public `/api/stats`; reports stale data for at most 10 minutes, then 503 unavailable
 
 ## Docker

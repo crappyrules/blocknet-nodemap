@@ -359,7 +359,7 @@
             <span class="stat-value" id="node-count">—</span>
         </div>
 		<div class="stat-row">
-			<span class="stat-label">Responded</span>
+			<span class="stat-label">Recent (10m)</span>
 			<span class="stat-value" id="current-count">—</span>
 		</div>
         <div class="stat-row">
@@ -380,7 +380,7 @@
         </div>
         <div id="network-status" role="status">BNT node metrics unavailable</div>
         <div id="status">Connecting...</div>
-		<div class="map-note">Green: answered the latest crawl. Dim: reported within 12h but did not answer. A dim ring around green means both share a map location. Neither status guarantees a node is online now.</div>
+		<div class="map-note">Green: peer reported seen in the last 10m. Dim: older report retained up to 12h. A dim ring around green means both share a map location. Reports do not guarantee a node is online now.</div>
         <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
     </div>
 
@@ -487,11 +487,10 @@
 
         async function fetchNodes() {
             try {
-                const [nodesResp, statsResp] = await Promise.all([
-                    fetch('/api/nodes'),
-                    fetch('/api/stats'),
-                ]);
+                const nodesResp = await fetch('/api/nodes');
                 const nodes = await nodesResp.json();
+                // /api/nodes fills the geolocation cache used by /api/stats.
+                const statsResp = await fetch('/api/stats');
                 const stats = await statsResp.json();
 
                 nodeData = nodes || [];
@@ -529,7 +528,7 @@
 			const currentIcon = createNodeIcon(true);
 			const cachedIcon = createNodeIcon(false);
 			const cachedOverlapIcon = createNodeIcon(false, true);
-			const currentLocations = new Set(nodes.filter(node => node.in_last_crawl && hasGeo(node))
+			const currentLocations = new Set(nodes.filter(node => node.recently_seen && hasGeo(node))
 				.map(node => `${node.lat},${node.lng}`));
 
             for (const node of nodes) {
@@ -542,17 +541,17 @@
                         <div><span class="label">Location:</span> <span class="value">${escapeHTML(node.city || '?')}, ${escapeHTML(node.country || '?')}</span></div>
                         <div><span class="label">ISP:</span> <span class="value">${escapeHTML(node.isp || '?')}</span></div>
                         <div><span class="label">Observed:</span> <span class="value">${formatTime(node.observed_at)}</span></div>
-					<div><span class="label">Status:</span> <span class="value">${node.in_last_crawl ? 'Responded to latest crawl' : '12h cache'}</span></div>
+					<div><span class="label">Status:</span> <span class="value">${node.recently_seen ? 'Recent peer report' : '12h cache'}</span></div>
                     </div>
                 `;
                 // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
                 // One copy on each neighboring world keeps nodes visible across the seam.
-                const icon = node.in_last_crawl ? currentIcon
+                const icon = node.recently_seen ? currentIcon
                     : currentLocations.has(`${node.lat},${node.lng}`) ? cachedOverlapIcon : cachedIcon;
                 for (const offset of [-360, 0, 360]) {
                     markers.addLayer(L.marker([node.lat, node.lng + offset], {
                         icon,
-                        pane: node.in_last_crawl ? 'currentNodes' : 'cachedNodes',
+                        pane: node.recently_seen ? 'currentNodes' : 'cachedNodes',
                     }).bindPopup(popup));
                 }
             }
@@ -767,7 +766,7 @@
 
         function updateStats(stats) {
             document.getElementById('node-count').textContent = stats.total_nodes || 0;
-			document.getElementById('current-count').textContent = stats.current_nodes || 0;
+			document.getElementById('current-count').textContent = stats.recent_nodes || 0;
             document.getElementById('country-count').textContent = stats.countries || 0;
 
             const lastCrawl = stats.last_crawl;
@@ -780,9 +779,9 @@
 
         function updateNodeList(nodes) {
             const container = document.getElementById('nodes-container');
-            // Show peers that responded first, then sort by country and IP.
+            // Show recent peer reports first, then sort by country and IP.
             const sorted = [...nodes].sort((a, b) => {
-				if (a.in_last_crawl !== b.in_last_crawl) return a.in_last_crawl ? -1 : 1;
+				if (a.recently_seen !== b.recently_seen) return a.recently_seen ? -1 : 1;
                 const ca = (a.country || '').localeCompare(b.country || '');
                 if (ca !== 0) return ca;
                 return (a.ip || '').localeCompare(b.ip || '');
@@ -790,14 +789,14 @@
 
             container.innerHTML = sorted.map(n => {
                 const geo = hasGeo(n);
-                const cls = `node-entry${geo ? '' : ' no-geo'}${n.in_last_crawl ? '' : ' cached'}`;
+				const cls = `node-entry${geo ? '' : ' no-geo'}${n.recently_seen ? '' : ' cached'}`;
                 const tag = geo ? 'button' : 'div';
                 const click = geo ? `type="button" onclick="flyTo(${n.lat}, ${n.lng})"` : '';
                 return `
                     <${tag} class="${cls}" ${click}>
                         <span class="node-ip">${escapeHTML(n.ip)}</span>
                         <span class="node-location">${escapeHTML(n.city ? n.city + ', ' : '')}${escapeHTML(n.country || 'Unknown')}</span>
-						<span class="node-state">${n.in_last_crawl ? 'responded' : 'cached'}</span>
+						<span class="node-state">${n.recently_seen ? 'recent' : 'cached'}</span>
                     </${tag}>
                 `;
             }).join('');

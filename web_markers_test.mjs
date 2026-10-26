@@ -11,7 +11,7 @@ const section = (start, end) => {
     return html.slice(from, to);
 };
 
-test('cached markers remain visible when a responding peer shares their location', () => {
+test('cached markers remain visible when a recent peer report shares their location', () => {
     const rendered = [];
     const context = {
         L: {
@@ -35,9 +35,9 @@ test('cached markers remain visible when a responding peer shares their location
     );
 
     const nodes = [
-        { peer_id: 'active', ip: '192.0.2.1', lat: 1, lng: 1, in_last_crawl: true },
-        { peer_id: 'cached-overlap', ip: '192.0.2.2', lat: 1, lng: 1, in_last_crawl: false },
-        { peer_id: 'cached-only', ip: '192.0.2.3', lat: 2, lng: 2, in_last_crawl: false },
+        { peer_id: 'recent-report', ip: '192.0.2.1', lat: 1, lng: 1, recently_seen: true, in_last_crawl: false },
+        { peer_id: 'cached-overlap', ip: '192.0.2.2', lat: 1, lng: 1, recently_seen: false, in_last_crawl: false },
+        { peer_id: 'cached-only', ip: '192.0.2.3', lat: 2, lng: 2, recently_seen: false, in_last_crawl: false },
     ];
     context.nodes = nodes;
     vm.runInContext('updateMap(nodes)', context);

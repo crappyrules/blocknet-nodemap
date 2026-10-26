@@ -30,16 +30,26 @@ var defaultSeeds = []string{
 
 // NodeInfo is the JSON structure served by /api/nodes.
 type NodeInfo struct {
-	PeerID      string  `json:"peer_id"`
-	IP          string  `json:"ip"`
-	Lat         float64 `json:"lat"`
-	Lng         float64 `json:"lng"`
-	Country     string  `json:"country"`
-	City        string  `json:"city"`
-	ISP         string  `json:"isp"`
-	LastSeen    int64   `json:"last_seen"`
-	ObservedAt  int64   `json:"observed_at"`
-	InLastCrawl bool    `json:"in_last_crawl"`
+	PeerID       string  `json:"peer_id"`
+	IP           string  `json:"ip"`
+	Lat          float64 `json:"lat"`
+	Lng          float64 `json:"lng"`
+	Country      string  `json:"country"`
+	City         string  `json:"city"`
+	ISP          string  `json:"isp"`
+	LastSeen     int64   `json:"last_seen"`
+	ObservedAt   int64   `json:"observed_at"`
+	InLastCrawl  bool    `json:"in_last_crawl"`
+	RecentlySeen bool    `json:"recently_seen"`
+}
+
+const recentNodeWindow = 10 * time.Minute
+
+// PEX last_seen is reported by peers, so treat it as a recent report rather
+// than proof that the address is currently reachable.
+func recentlySeen(lastSeen int64, now time.Time) bool {
+	age := now.Unix() - lastSeen
+	return lastSeen > 0 && age >= -120 && age <= int64(recentNodeWindow.Seconds())
 }
 
 func main() {
@@ -107,13 +117,15 @@ func main() {
 
 		// Build response.
 		infos := make([]NodeInfo, 0, len(nodes))
+		now := time.Now()
 		for _, n := range nodes {
 			info := NodeInfo{
-				PeerID:      n.PeerID,
-				IP:          n.IP,
-				LastSeen:    n.LastSeen,
-				ObservedAt:  n.ObservedAt,
-				InLastCrawl: n.InLastCrawl,
+				PeerID:       n.PeerID,
+				IP:           n.IP,
+				LastSeen:     n.LastSeen,
+				ObservedAt:   n.ObservedAt,
+				InLastCrawl:  n.InLastCrawl,
+				RecentlySeen: recentlySeen(n.LastSeen, now),
 			}
 			if gr, ok := geoResults[n.IP]; ok {
 				info.Lat = gr.Lat
@@ -134,9 +146,14 @@ func main() {
 		nodes := crawler.Nodes()
 		countries := make(map[string]bool)
 		currentNodes := 0
+		recentNodes := 0
+		now := time.Now()
 		for _, n := range nodes {
 			if n.InLastCrawl {
 				currentNodes++
+			}
+			if recentlySeen(n.LastSeen, now) {
+				recentNodes++
 			}
 			if gr := geo.Lookup(n.IP); gr != nil {
 				countries[gr.Country] = true
@@ -147,6 +164,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]any{
 			"total_nodes":   len(nodes),
 			"current_nodes": currentNodes,
+			"recent_nodes":  recentNodes,
 			"cache_hours":   int(nodeCacheWindow.Hours()),
 			"countries":     len(countries),
 			"last_crawl":    crawler.LastCrawl().Unix(),
