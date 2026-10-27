@@ -26,6 +26,7 @@ test('cached markers remain visible when a recent peer report shares their locat
             addLayer(marker) { rendered.push(marker); },
         },
         formatTime: () => 'now',
+        t: key => key,
     };
     vm.createContext(context);
     vm.runInContext(

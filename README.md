@@ -9,6 +9,9 @@ A small Go service that crawls the Blocknet libp2p network (via PEX) and serves 
 - The map retains nodes **reported to or reached by the crawler within the last 12 hours** so a partial or missed crawl does not empty the map. Green nodes have a peer-reported `last_seen` timestamp within 10 minutes; dim nodes have older reports within the 12-hour cache. A peer-reported timestamp is not proof that the address is currently reachable.
 - The cache is in memory. Restarting the service starts a new 12-hour window.
 
+## Languages
+The interface supports English, Spanish, French, German, Portuguese, and Simplified Chinese. It picks the first supported browser language and falls back to English. Visitors can choose a language in the network information panel; the choice is saved in their browser when local storage is available. Interface translations live in `web/i18n.js` and require no external translation service. Map labels come from the OpenFreeMap style, while city and country names come from the geolocation provider; neither is translated by the interface selector. Non-English copy should be reviewed by native speakers before relying on it for public communication.
+
 ## Build
 ```bash
 go build -o nodemap .

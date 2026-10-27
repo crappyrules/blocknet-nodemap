@@ -89,6 +89,26 @@
             margin-bottom: 12px;
             line-height: 1;
         }
+        .panel-toggle {
+            margin-left: auto;
+            padding: 0;
+            width: 24px;
+            height: 24px;
+            flex: 0 0 24px;
+            border: 1px solid var(--border-strong);
+            background: transparent;
+            color: var(--accent);
+            font: inherit;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .panel-toggle:hover, .panel-toggle:focus-visible { border-color: var(--accent); }
+        .compact-count { display: none; color: var(--text); font-weight: 600; font-size: 12px; margin-left: auto; }
+        #stats.is-collapsed { min-width: 0; width: 285px; }
+        #stats.is-collapsed .brand { margin-bottom: 0; }
+        #stats.is-collapsed .compact-count { display: inline; }
+        #stats.is-collapsed .panel-toggle { margin-left: 0; }
         .brand .logo {
             width: 16px;
             height: 16px;
@@ -134,6 +154,9 @@
         }
         #status.crawling { color: #ffb300; }
         #status.ready { color: var(--accent); }
+		.language-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; color: var(--muted); font-size: 11px; }
+		#language-select { min-width: 116px; max-width: 65%; padding: 5px 7px; border: 1px solid var(--border-strong); background: var(--panel-solid); color: var(--text); font: inherit; }
+		#language-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 		.map-note { margin-top: 7px; color: var(--muted2); font-size: 10px; line-height: 1.4; }
         #basemap-status {
             margin-top: 6px;
@@ -150,13 +173,16 @@
             width: 340px;
             overflow-y: auto;
         }
+        #node-list.is-collapsed { width: 245px; }
+        .list-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        #node-list.is-collapsed .list-heading { margin-bottom: 0; }
         #node-list h2 {
             font-size: 12px;
             color: var(--accent);
             font-weight: 700;
             letter-spacing: 0.8px;
             text-transform: lowercase;
-            margin-bottom: 10px;
+            margin: 0;
         }
         .node-entry {
             display: block;
@@ -324,6 +350,9 @@
                 background: transparent;
                 backdrop-filter: none;
             }
+            #stats.is-collapsed, #node-list.is-collapsed { width: auto; min-width: 0; }
+            .panel-toggle, .compact-count { display: none !important; }
+            #stats.is-collapsed .brand, #node-list.is-collapsed .list-heading { margin-bottom: 12px; }
             #stats { border-bottom: 1px solid var(--border); }
             .leaflet-control-zoom { display: none; }
 
@@ -342,50 +371,58 @@
 </head>
 <body>
     <div id="map"></div>
-    <button id="open-info" type="button" aria-controls="info-drawer" aria-expanded="false">☰ &nbsp; network info</button>
+    <button id="open-info" type="button" aria-controls="info-drawer" aria-expanded="false">☰ &nbsp; <span data-i18n="networkInfo">network info</span></button>
     <div id="info-backdrop" hidden></div>
 
-    <aside id="info-drawer" aria-label="Network information">
-    <button id="close-info" type="button" aria-label="Close network information">× &nbsp; close</button>
+    <aside id="info-drawer" aria-label="Network information" data-i18n-aria-label="networkInformation">
+    <button id="close-info" type="button" aria-label="Close network information" data-i18n-aria-label="closeNetworkInformation">× &nbsp; <span data-i18n="close">close</span></button>
     <div id="stats" class="panel">
         <div class="brand">
             <img class="logo" src="/blocknet.png" alt="blocknet" />
             <span class="name">blocknet</span>
-            <span class="sub">nodes</span>
+            <span class="sub" data-i18n="nodes">nodes</span>
+            <span class="compact-count" id="compact-node-count">—</span>
+            <button class="panel-toggle" id="toggle-stats" type="button" aria-controls="stats-content" aria-expanded="true" aria-label="Minimize Blocknet nodes">−</button>
         </div>
+	<div id="stats-content">
+		<div class="language-row"><label for="language-select" data-i18n="language">Language</label><select id="language-select">
+			<option value="en">English</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="pt">Português</option><option value="zh-CN">简体中文</option>
+		</select></div>
 
         <div class="stat-row">
-            <span class="stat-label">Seen in 12h</span>
+            <span class="stat-label" data-i18n="seen12h">Seen in 12h</span>
             <span class="stat-value" id="node-count">—</span>
         </div>
 		<div class="stat-row">
-			<span class="stat-label">Recent (10m)</span>
+			<span class="stat-label" data-i18n="recent10m">Recent (10m)</span>
 			<span class="stat-value" id="current-count">—</span>
 		</div>
         <div class="stat-row">
-            <span class="stat-label">Countries</span>
+            <span class="stat-label" data-i18n="countries">Countries</span>
             <span class="stat-value" id="country-count">—</span>
         </div>
         <div class="stat-row">
-            <span class="stat-label">Last Crawl</span>
+            <span class="stat-label" data-i18n="lastCrawl">Last Crawl</span>
             <span class="stat-value" id="last-crawl">—</span>
         </div>
         <div class="stat-row">
-            <span class="stat-label">Hashrate</span>
+            <span class="stat-label" data-i18n="hashrate">Hashrate</span>
             <span class="stat-value" id="network-hashrate">—</span>
         </div>
         <div class="stat-row">
-            <span class="stat-label">Next Difficulty</span>
+            <span class="stat-label" data-i18n="nextDifficulty">Next Difficulty</span>
             <span class="stat-value" id="network-difficulty">—</span>
         </div>
-        <div id="network-status" role="status">BNT node metrics unavailable</div>
-        <div id="status">Connecting...</div>
-		<div class="map-note">Green: peer reported seen in the last 10m. Dim: older report retained up to 12h. A dim ring around green means both share a map location. Reports do not guarantee a node is online now.</div>
-        <div id="basemap-status" role="status" hidden>Background map unavailable; nodes remain visible.</div>
+        <div id="network-status" role="status" data-i18n="metricsUnavailable">BNT node metrics unavailable</div>
+        <div id="status" data-i18n="connecting">Connecting...</div>
+		<div class="map-note" data-i18n="mapNote">Green: peer reported seen in the last 10m. Dim: older report retained up to 12h. A dim ring around green means both share a map location. Reports do not guarantee a node is online now.</div>
+        <div id="basemap-status" role="status" hidden data-i18n="mapUnavailable">Background map unavailable; nodes remain visible.</div>
+	</div>
     </div>
 
     <div id="node-list" class="panel">
-        <h2># node list</h2>
+        <div class="list-heading"><h2># <span data-i18n="nodeList">node list</span></h2><button class="panel-toggle" id="toggle-list" type="button" aria-controls="nodes-content" aria-expanded="true" aria-label="Minimize node list">−</button></div>
+        <div id="nodes-content">
         <!--
         <div class="control-row">
             <label for="conn-opacity">connections</label>
@@ -393,12 +430,48 @@
         </div>
         -->
         <div id="nodes-container"></div>
+        </div>
     </div>
     </aside>
 
     <script type="module">
+        import { resolveLocale, translate } from './i18n.js';
         import * as L from 'leaflet';
         import { maplibreGL } from 'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.mjs';
+        const languageSelect = document.getElementById('language-select');
+        let savedLocale;
+        try { savedLocale = localStorage.getItem('blocknet-nodemap-language'); } catch (_) { /* Storage can be disabled. */ }
+        let locale = savedLocale && [...languageSelect.options].some(option => option.value === savedLocale)
+            ? savedLocale : resolveLocale(navigator.languages?.length ? navigator.languages : [navigator.language]);
+        const t = (key, values) => translate(locale, key, values);
+        const localeNumber = value => Number(value || 0).toLocaleString(locale);
+        let latestStats = null;
+        let latestNetwork = null;
+        let nodeStatus = { kind: 'connecting' };
+
+        function renderNodeStatus() {
+            const el = document.getElementById('status');
+            el.textContent = nodeStatus.kind === 'updated' ? t('updated', { time: nodeStatus.at.toLocaleTimeString(locale) })
+                : nodeStatus.kind === 'error' ? t('error', { message: nodeStatus.message }) : t('connecting');
+            el.className = nodeStatus.kind === 'updated' ? 'ready' : nodeStatus.kind === 'error' ? 'crawling' : '';
+        }
+
+        function setLocale(next) {
+            locale = next;
+            document.documentElement.lang = locale;
+            languageSelect.value = locale;
+            try { localStorage.setItem('blocknet-nodemap-language', locale); } catch (_) { /* Keep selection for this page. */ }
+            document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+            document.querySelectorAll('[data-i18n-aria-label]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)); });
+            updatePanelPresentation();
+            renderNodeStatus();
+            if (latestStats) updateStats(latestStats);
+            map.closePopup();
+            updateMap(nodeData);
+            updateNodeList(nodeData);
+            renderNetworkMetrics();
+        }
+        languageSelect.addEventListener('change', () => setLocale(languageSelect.value));
         // Initialize the map with a dark vector basemap.
         // Keep the poles in range, but let longitude wrap across the dateline.
         const latitudeBounds = L.latLngBounds(L.latLng(-85, -Infinity), L.latLng(85, Infinity));
@@ -494,17 +567,16 @@
                 const stats = await statsResp.json();
 
                 nodeData = nodes || [];
+                latestStats = stats;
                 updateMap(nodeData);
                 updateStats(stats);
                 updateNodeList(nodeData);
 
-                const statusEl = document.getElementById('status');
-                statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
-                statusEl.className = 'ready';
+                nodeStatus = { kind: 'updated', at: new Date() };
+                renderNodeStatus();
             } catch (err) {
-                const statusEl = document.getElementById('status');
-                statusEl.textContent = `Error: ${err.message}`;
-                statusEl.className = 'crawling';
+                nodeStatus = { kind: 'error', message: err.message };
+                renderNodeStatus();
             }
         }
 
@@ -537,11 +609,11 @@
                 const popup = `
                     <div class="popup-content">
                         <div><span class="label">IP:</span> <span class="value">${escapeHTML(node.ip)}</span></div>
-                        <div><span class="label">Peer:</span> <span class="value">${escapeHTML(node.peer_id.substring(0, 16))}…</span></div>
-                        <div><span class="label">Location:</span> <span class="value">${escapeHTML(node.city || '?')}, ${escapeHTML(node.country || '?')}</span></div>
+                        <div><span class="label">${t('peer')}:</span> <span class="value">${escapeHTML((node.peer_id || '').substring(0, 16))}…</span></div>
+                        <div><span class="label">${t('location')}:</span> <span class="value">${escapeHTML(node.city || '?')}, ${escapeHTML(node.country || '?')}</span></div>
                         <div><span class="label">ISP:</span> <span class="value">${escapeHTML(node.isp || '?')}</span></div>
-                        <div><span class="label">Observed:</span> <span class="value">${formatTime(node.observed_at)}</span></div>
-					<div><span class="label">Status:</span> <span class="value">${node.recently_seen ? 'Recent peer report' : '12h cache'}</span></div>
+                        <div><span class="label">${t('observed')}:</span> <span class="value">${formatTime(node.observed_at)}</span></div>
+					<div><span class="label">${t('status')}:</span> <span class="value">${t(node.recently_seen ? 'recentReport' : 'cache12h')}</span></div>
                     </div>
                 `;
                 // Leaflet overlays do not repeat with MapLibre's basemap at the dateline.
@@ -765,15 +837,16 @@
         function toDeg(rad) { return (rad * 180) / Math.PI; }
 
         function updateStats(stats) {
-            document.getElementById('node-count').textContent = stats.total_nodes || 0;
-			document.getElementById('current-count').textContent = stats.recent_nodes || 0;
-            document.getElementById('country-count').textContent = stats.countries || 0;
+            document.getElementById('node-count').textContent = localeNumber(stats.total_nodes);
+			document.getElementById('compact-node-count').textContent = localeNumber(stats.total_nodes);
+			document.getElementById('current-count').textContent = localeNumber(stats.recent_nodes);
+            document.getElementById('country-count').textContent = localeNumber(stats.countries);
 
             const lastCrawl = stats.last_crawl;
             if (lastCrawl && lastCrawl > 0) {
                 document.getElementById('last-crawl').textContent = formatTime(lastCrawl);
             } else {
-                document.getElementById('last-crawl').textContent = 'Crawling…';
+                document.getElementById('last-crawl').textContent = t('crawling');
             }
         }
 
@@ -782,7 +855,7 @@
             // Show recent peer reports first, then sort by country and IP.
             const sorted = [...nodes].sort((a, b) => {
 				if (a.recently_seen !== b.recently_seen) return a.recently_seen ? -1 : 1;
-                const ca = (a.country || '').localeCompare(b.country || '');
+                const ca = (a.country || '').localeCompare(b.country || '', locale);
                 if (ca !== 0) return ca;
                 return (a.ip || '').localeCompare(b.ip || '');
             });
@@ -795,8 +868,8 @@
                 return `
                     <${tag} class="${cls}" ${click}>
                         <span class="node-ip">${escapeHTML(n.ip)}</span>
-                        <span class="node-location">${escapeHTML(n.city ? n.city + ', ' : '')}${escapeHTML(n.country || 'Unknown')}</span>
-						<span class="node-state">${n.recently_seen ? 'recent' : 'cached'}</span>
+                        <span class="node-location">${escapeHTML(n.city ? n.city + ', ' : '')}${escapeHTML(n.country || t('unknown'))}</span>
+						<span class="node-state">${t(n.recently_seen ? 'recent' : 'cached')}</span>
                     </${tag}>
                 `;
             }).join('');
@@ -816,11 +889,11 @@
             const now = new Date();
             const diffMs = now - d;
             const diffMin = Math.floor(diffMs / 60000);
-            if (diffMin < 1) return 'just now';
-            if (diffMin < 60) return `${diffMin}m ago`;
+            if (diffMin < 1) return t('justNow');
+            if (diffMin < 60) return t('minutesAgo', { count: localeNumber(diffMin) });
             const diffHr = Math.floor(diffMin / 60);
-            if (diffHr < 24) return `${diffHr}h ago`;
-            return d.toLocaleDateString();
+            if (diffHr < 24) return t('hoursAgo', { count: localeNumber(diffHr) });
+            return d.toLocaleDateString(locale);
         }
 
         function formatHashrate(value) {
@@ -831,13 +904,27 @@
                 value /= 1000;
                 unit++;
             }
-            return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${units[unit]}`;
+            return `${value.toLocaleString(locale, { maximumFractionDigits: 2 })} ${units[unit]}`;
         }
 
-        async function fetchNetworkMetrics() {
+        function renderNetworkMetrics() {
             const rate = document.getElementById('network-hashrate');
             const difficulty = document.getElementById('network-difficulty');
             const state = document.getElementById('network-status');
+            if (!latestNetwork) {
+                rate.textContent = '—';
+                difficulty.textContent = '—';
+                state.textContent = t('metricsUnavailable');
+                return;
+            }
+            rate.textContent = formatHashrate(latestNetwork.network_hashrate);
+            difficulty.textContent = localeNumber(latestNetwork.difficulty);
+            difficulty.title = t('nextBlockDifficulty');
+            state.textContent = t(latestNetwork.status === 'stale' ? 'metricsStale' : 'metricsFresh',
+                { time: formatTime(latestNetwork.sampled_at) });
+        }
+
+        async function fetchNetworkMetrics() {
             try {
                 const response = await fetch('/api/network');
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -845,17 +932,11 @@
                 if (!['fresh', 'stale'].includes(data.status) || !Number.isFinite(data.network_hashrate) || !Number.isSafeInteger(data.difficulty)) {
                     throw new Error('Invalid node metrics');
                 }
-                rate.textContent = formatHashrate(data.network_hashrate);
-                difficulty.textContent = data.difficulty.toLocaleString();
-                difficulty.title = 'BNT next-block difficulty';
-                state.textContent = data.status === 'stale'
-                    ? `BNT node metrics stale · sampled ${formatTime(data.sampled_at)}`
-                    : `BNT node · sampled ${formatTime(data.sampled_at)}`;
+                latestNetwork = data;
             } catch (_) {
-                rate.textContent = '—';
-                difficulty.textContent = '—';
-                state.textContent = 'BNT node metrics unavailable';
+                latestNetwork = null;
             }
+            renderNetworkMetrics();
         }
 
         const mobileQuery = window.matchMedia('(max-width: 760px), (max-height: 500px) and (max-width: 1100px)');
@@ -863,6 +944,32 @@
         const openInfo = document.getElementById('open-info');
         const closeInfo = document.getElementById('close-info');
         const backdrop = document.getElementById('info-backdrop');
+        const panelCollapsed = { stats: false, list: false };
+
+        function updatePanelPresentation() {
+            const mobile = mobileQuery.matches;
+            for (const [name, panelId, contentId, buttonId] of [
+                ['stats', 'stats', 'stats-content', 'toggle-stats'],
+                ['list', 'node-list', 'nodes-content', 'toggle-list'],
+            ]) {
+                const collapsed = !mobile && panelCollapsed[name];
+                document.getElementById(panelId).classList.toggle('is-collapsed', collapsed);
+                document.getElementById(contentId).hidden = collapsed;
+                const button = document.getElementById(buttonId);
+                button.setAttribute('aria-expanded', String(!collapsed));
+                button.setAttribute('aria-label', t(`${collapsed ? 'expand' : 'minimize'}${name === 'stats' ? 'Stats' : 'List'}`));
+                button.textContent = collapsed ? '+' : '−';
+            }
+        }
+
+        document.getElementById('toggle-stats').addEventListener('click', () => {
+            panelCollapsed.stats = !panelCollapsed.stats;
+            updatePanelPresentation();
+        });
+        document.getElementById('toggle-list').addEventListener('click', () => {
+            panelCollapsed.list = !panelCollapsed.list;
+            updatePanelPresentation();
+        });
 
         function setDrawerOpen(open, restoreFocus = true) {
             const mobileOpen = mobileQuery.matches && open;
@@ -885,7 +992,7 @@
             if (event.key === 'Escape') {
                 setDrawerOpen(false);
             } else if (event.key === 'Tab') {
-                const items = [...drawer.querySelectorAll('button, a, input, [tabindex]:not([tabindex="-1"])')]
+                const items = [...drawer.querySelectorAll('button, a, input, select, [tabindex]:not([tabindex="-1"])')]
                     .filter(el => !el.disabled && el.getClientRects().length);
                 const first = items[0], last = items[items.length - 1];
                 if (event.shiftKey && document.activeElement === first) {
@@ -897,7 +1004,10 @@
                 }
             }
         });
-        mobileQuery.addEventListener('change', () => setDrawerOpen(false, false));
+        mobileQuery.addEventListener('change', () => {
+            setDrawerOpen(false, false);
+            updatePanelPresentation();
+        });
         setDrawerOpen(false, false);
 
         // Connection opacity slider.
@@ -912,6 +1022,7 @@
         });
         */
 
+        setLocale(locale);
         // Initial fetch + auto-refresh every 60s.
         fetchNodes();
         setInterval(fetchNodes, 60000);
